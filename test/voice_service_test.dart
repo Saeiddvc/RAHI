@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:rahi/core/services/voice_service.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('VoiceService starts optimistic before the first platform probe', () {
     final service = VoiceService();
 
