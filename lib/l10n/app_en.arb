@@ -51,5 +51,8 @@
   "remaining": "Remaining",
   "eta": "ETA",
   "voiceNotAvailable": "Voice guidance is not available on this device",
-  "voiceDisclosure": "Voice guidance is provided by your device TTS engine"
+  "voiceDisclosure": "Voice guidance is provided by your device TTS engine",
+  "remainingSteps": "Remaining steps",
+  "offRoute": "Off route",
+  "offRouteHint": "Return to the suggested route"
 }

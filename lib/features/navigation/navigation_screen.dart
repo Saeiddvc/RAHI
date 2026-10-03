@@ -13,6 +13,7 @@ import '../../l10n/app_localizations.dart';
 import '../../providers/location_provider.dart';
 import '../map/widgets/rahi_map.dart';
 import 'providers/navigation_provider.dart';
+import 'widgets/remaining_steps_sheet.dart';
 
 class NavigationScreen extends ConsumerStatefulWidget {
   const NavigationScreen({super.key});
@@ -102,6 +103,17 @@ class _NavigationScreenState
               ],
             ),
           ),
+          if (!navigation.arrived && navigation.remainingSteps.isNotEmpty)
+            PositionedDirectional(
+              end: 16,
+              bottom: 210,
+              child: FloatingActionButton.small(
+                heroTag: 'remaining_steps_fab',
+                onPressed: _openRemainingSteps,
+                tooltip: l10n.remainingSteps,
+                child: const Icon(Icons.list_alt),
+              ),
+            ),
           Positioned(
             bottom: 0,
             left: 0,
@@ -111,11 +123,28 @@ class _NavigationScreenState
                   navigation.remainingDistanceMeters,
               remainingDurationSeconds:
                   navigation.remainingDurationSeconds,
+              isOffRoute: navigation.isOffRoute,
               onExit: _exitNavigation,
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _openRemainingSteps() async {
+    final steps = ref.read(navigationProvider).remainingSteps;
+    if (steps.isEmpty) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(20),
+        ),
+      ),
+      builder: (_) => RemainingStepsSheet(steps: steps),
     );
   }
 
@@ -293,11 +322,13 @@ class _VoiceWarning extends StatelessWidget {
 class _NavigationBottomCard extends StatelessWidget {
   final double remainingDistanceMeters;
   final int remainingDurationSeconds;
+  final bool isOffRoute;
   final VoidCallback onExit;
 
   const _NavigationBottomCard({
     required this.remainingDistanceMeters,
     required this.remainingDurationSeconds,
+    required this.isOffRoute,
     required this.onExit,
   });
 
@@ -315,6 +346,56 @@ class _NavigationBottomCard extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (isOffRoute) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color:
+                        Theme.of(context).colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onErrorContainer,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              l10n.offRoute,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onErrorContainer,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              l10n.offRouteHint,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onErrorContainer,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               Row(
                 children: [
                   Expanded(

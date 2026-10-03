@@ -5,6 +5,7 @@ import '../../../core/services/voice_service.dart';
 import '../../../data/models/map_route.dart';
 import '../../../data/models/route_step.dart';
 import '../../../providers/settings_provider.dart';
+import '../utils/off_route_detector.dart';
 
 class NavigationState {
   final MapRoute? route;
@@ -17,6 +18,7 @@ class NavigationState {
   final bool arrived;
   final bool isActive;
   final bool voiceUnavailable;
+  final bool isOffRoute;
 
   const NavigationState({
     this.route,
@@ -27,6 +29,7 @@ class NavigationState {
     this.arrived = false,
     this.isActive = false,
     this.voiceUnavailable = false,
+    this.isOffRoute = false,
   });
 
   RouteStep? get currentStep {
@@ -48,6 +51,20 @@ class NavigationState {
     return activeRoute.steps[nextIndex];
   }
 
+  List<RouteStep> get remainingSteps {
+    final activeRoute = route;
+    if (activeRoute == null || !activeRoute.hasSteps) {
+      return const [];
+    }
+
+    if (currentStepIndex < 0 ||
+        currentStepIndex >= activeRoute.steps.length) {
+      return const [];
+    }
+
+    return activeRoute.steps.sublist(currentStepIndex);
+  }
+
   NavigationState copyWith({
     MapRoute? route,
     int? currentStepIndex,
@@ -57,6 +74,7 @@ class NavigationState {
     bool? arrived,
     bool? isActive,
     bool? voiceUnavailable,
+    bool? isOffRoute,
     bool clearRoute = false,
   }) {
     return NavigationState(
@@ -71,6 +89,7 @@ class NavigationState {
       arrived: arrived ?? this.arrived,
       isActive: isActive ?? this.isActive,
       voiceUnavailable: voiceUnavailable ?? this.voiceUnavailable,
+      isOffRoute: isOffRoute ?? this.isOffRoute,
     );
   }
 }
@@ -120,8 +139,21 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
 
   Future<void> updateUserLocation(LatLng userLocation) async {
     final route = state.route;
-    if (!state.isActive || route == null || !route.hasSteps) return;
+    if (!state.isActive || route == null) return;
     if (state.arrived) return;
+
+    final distanceToRoute = OffRouteDetector.distanceToRoute(
+      userLocation,
+      route.points,
+    );
+    final isOffRoute =
+        distanceToRoute > OffRouteDetector.offRouteThresholdMeters;
+
+    if (isOffRoute != state.isOffRoute) {
+      state = state.copyWith(isOffRoute: isOffRoute);
+    }
+
+    if (!route.hasSteps) return;
 
     var stepIndex = state.currentStepIndex;
     var target = route.steps[stepIndex];
@@ -250,6 +282,7 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
       remainingDistanceMeters: 0,
       remainingDurationSeconds: 0,
       arrived: true,
+      isOffRoute: false,
     );
 
     if (_arrivalAnnounced || !_voiceEnabled) return;
