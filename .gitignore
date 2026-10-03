@@ -22,6 +22,9 @@ key.properties
 lib/core/constants/secrets.dart
 lib/core/constants/secrets_local.dart
 
+# Generated localization files
+lib/l10n/app_localizations*.dart
+
 # OS
 .DS_Store
 Thumbs.db
