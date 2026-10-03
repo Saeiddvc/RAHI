@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - 'v1-commit-15-polish'
   workflow_dispatch:
     inputs:
       smoke_test:
@@ -153,7 +155,7 @@ jobs:
 
       - name: Build release APK
         env:
-          NESHAN_API_KEY: ${{ secrets.NESHAN_API_KEY }}
+          NESHAN_API_KEY: ${{ github.ref_type == 'branch' && 'test' || secrets.NESHAN_API_KEY }}
           PARSIMAP_SERVICE_TOKEN: ${{ secrets.PARSIMAP_SERVICE_TOKEN }}
           PARSIMAP_MAP_TOKEN: ${{ secrets.PARSIMAP_MAP_TOKEN }}
         shell: bash
