@@ -3,6 +3,16 @@ import 'package:latlong2/latlong.dart';
 import '../../data/models/map_route.dart';
 import '../../data/models/place.dart';
 
+enum RouteType {
+  car('car'),
+  motorcycle('motorcycle'),
+  pedestrian('pedestrian'),
+  bicycle('bicycle');
+
+  const RouteType(this.apiValue);
+  final String apiValue;
+}
+
 abstract class MapService {
   Future<List<Place>> search({
     required String term,
@@ -14,8 +24,10 @@ abstract class MapService {
   Future<List<MapRoute>> direction({
     required LatLng origin,
     required LatLng destination,
-    required String type,
+    required RouteType type,
   });
+
+  Set<RouteType> get supportedRouteTypes;
 
   String get tileUrlTemplate;
 
