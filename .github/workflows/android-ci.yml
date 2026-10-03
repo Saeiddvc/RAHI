@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -149,7 +149,7 @@ jobs:
           grep -F 'android:supportsRtl="true"' "$MERGED_MANIFEST"
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: RAHI-v0.1.0-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
