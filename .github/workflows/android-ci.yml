@@ -31,9 +31,6 @@ jobs:
       - name: Flutter version
         run: flutter --version
 
-      - name: Prepare non-secret constants
-        run: cp secrets.example.dart lib/core/constants/secrets.dart
-
       - name: Generate Android scaffold
         shell: bash
         run: |
@@ -50,6 +47,12 @@ jobs:
           fi
           if [ -f android/app/src/main/res/values/strings.xml ]; then
             cp android/app/src/main/res/values/strings.xml /tmp/rahi-android/strings.xml
+          fi
+          if [ -f android/app/build.gradle.kts ]; then
+            cp android/app/build.gradle.kts /tmp/rahi-android/build.gradle.kts
+          fi
+          if [ -f android/app/proguard-rules.pro ]; then
+            cp android/app/proguard-rules.pro /tmp/rahi-android/proguard-rules.pro
           fi
 
           flutter create .             --platforms=android             --project-name=rahi             --org=ir.rahi
@@ -70,6 +73,19 @@ jobs:
             mkdir -p android/app/src/main/res/values
             cp /tmp/rahi-android/strings.xml android/app/src/main/res/values/strings.xml
           fi
+          if [ -f /tmp/rahi-android/build.gradle.kts ]; then
+            cp /tmp/rahi-android/build.gradle.kts android/app/build.gradle.kts
+          fi
+          if [ -f /tmp/rahi-android/proguard-rules.pro ]; then
+            cp /tmp/rahi-android/proguard-rules.pro android/app/proguard-rules.pro
+          fi
+
+      - name: Verify tracked compile-time secrets contract
+        shell: bash
+        run: |
+          test -f lib/core/constants/secrets.dart
+          grep -F "String.fromEnvironment(" lib/core/constants/secrets.dart
+          test ! -f secrets.example.dart
 
       - name: Verify Android source manifest
         shell: bash

@@ -1,0 +1,180 @@
+name: RAHI Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      smoke_test:
+        description: 'Use disposable CI signing and do not publish a GitHub Release'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Generate Android scaffold
+        shell: bash
+        run: |
+          mkdir -p /tmp/rahi-source
+          cp -R lib /tmp/rahi-source/lib
+          cp -R test /tmp/rahi-source/test
+          cp pubspec.yaml /tmp/rahi-source/pubspec.yaml
+          cp analysis_options.yaml /tmp/rahi-source/analysis_options.yaml
+          if [ -f l10n.yaml ]; then cp l10n.yaml /tmp/rahi-source/l10n.yaml; fi
+
+          mkdir -p /tmp/rahi-android
+          cp android/app/src/main/AndroidManifest.xml /tmp/rahi-android/AndroidManifest.xml
+          cp android/app/src/main/res/values/strings.xml /tmp/rahi-android/strings.xml
+          cp android/app/build.gradle.kts /tmp/rahi-android/build.gradle.kts
+          cp android/app/proguard-rules.pro /tmp/rahi-android/proguard-rules.pro
+
+          flutter create .             --platforms=android             --project-name=rahi             --org=ir.rahi
+
+          rm -rf lib test
+          cp -R /tmp/rahi-source/lib ./lib
+          cp -R /tmp/rahi-source/test ./test
+          cp /tmp/rahi-source/pubspec.yaml ./pubspec.yaml
+          cp /tmp/rahi-source/analysis_options.yaml ./analysis_options.yaml
+          if [ -f /tmp/rahi-source/l10n.yaml ]; then
+            cp /tmp/rahi-source/l10n.yaml ./l10n.yaml
+          fi
+
+          cp /tmp/rahi-android/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          mkdir -p android/app/src/main/res/values
+          cp /tmp/rahi-android/strings.xml android/app/src/main/res/values/strings.xml
+          cp /tmp/rahi-android/build.gradle.kts android/app/build.gradle.kts
+          cp /tmp/rahi-android/proguard-rules.pro android/app/proguard-rules.pro
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Generate localization
+        run: flutter gen-l10n
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Validate production release secrets
+        if: github.event_name == 'push' || inputs.smoke_test == false
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          NESHAN_API_KEY: ${{ secrets.NESHAN_API_KEY }}
+        shell: bash
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo "KEYSTORE_BASE64 is required"; exit 1; }
+          test -n "$KEYSTORE_PASSWORD" || { echo "KEYSTORE_PASSWORD is required"; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "KEY_PASSWORD is required"; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "KEY_ALIAS is required"; exit 1; }
+          test -n "$NESHAN_API_KEY" || { echo "NESHAN_API_KEY is required for production release"; exit 1; }
+
+      - name: Create disposable CI signing key
+        if: github.event_name == 'workflow_dispatch' && inputs.smoke_test == true
+        shell: bash
+        run: |
+          keytool -genkeypair             -storetype PKCS12             -keystore android/app/rahi-ci-smoke.jks             -storepass ci-smoke-pass             -keypass ci-smoke-pass             -alias rahi-ci-smoke             -keyalg RSA             -keysize 2048             -validity 30             -dname "CN=RAHI CI Smoke, OU=CI, O=RAHI, L=CI, ST=CI, C=IR"
+
+          cat > android/key.properties <<'EOF'
+          storePassword=ci-smoke-pass
+          keyPassword=ci-smoke-pass
+          keyAlias=rahi-ci-smoke
+          storeFile=rahi-ci-smoke.jks
+          EOF
+
+      - name: Configure production signing
+        if: github.event_name == 'push' || inputs.smoke_test == false
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        shell: bash
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/app/rahi-release.jks
+
+          cat > android/key.properties <<EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=rahi-release.jks
+          EOF
+
+      - name: Build release APK
+        env:
+          NESHAN_API_KEY: ${{ secrets.NESHAN_API_KEY }}
+          PARSIMAP_SERVICE_TOKEN: ${{ secrets.PARSIMAP_SERVICE_TOKEN }}
+          PARSIMAP_MAP_TOKEN: ${{ secrets.PARSIMAP_MAP_TOKEN }}
+        shell: bash
+        run: |
+          flutter build apk --release             "--dart-define=NESHAN_API_KEY=$NESHAN_API_KEY"             "--dart-define=PARSIMAP_SERVICE_TOKEN=$PARSIMAP_SERVICE_TOKEN"             "--dart-define=PARSIMAP_MAP_TOKEN=$PARSIMAP_MAP_TOKEN"
+
+          test -f build/app/outputs/flutter-apk/app-release.apk
+          sha256sum build/app/outputs/flutter-apk/app-release.apk             | tee build/app/outputs/flutter-apk/app-release.apk.sha256
+
+      - name: Verify APK signature
+        shell: bash
+        run: |
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER" || { echo "apksigner not found"; exit 1; }
+
+          CERTS="$("$APKSIGNER" verify --verbose --print-certs build/app/outputs/flutter-apk/app-release.apk)"
+          echo "$CERTS"
+
+          if echo "$CERTS" | grep -qi "Android Debug"; then
+            echo "Refusing a release APK signed with Android Debug certificate."
+            exit 1
+          fi
+
+      - name: Upload signed release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RAHI-release-${{ github.ref_name }}
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-release.apk.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-release.apk.sha256
+          generate_release_notes: true
+          draft: false
+          prerelease: false

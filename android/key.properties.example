@@ -1,0 +1,7 @@
+# Template only. Never commit android/key.properties.
+# Copy this file to android/key.properties and replace the placeholders.
+
+storePassword=YOUR_KEYSTORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=rahi-release
+storeFile=rahi-release.jks

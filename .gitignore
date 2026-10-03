@@ -11,7 +11,10 @@ build/
 .vscode/
 *.iml
 
-# Android signing
+# Android signing - never commit production signing material
+android/key.properties
+android/app/*.jks
+android/app/*.keystore
 *.jks
 *.keystore
 key.properties
@@ -19,7 +22,6 @@ key.properties
 # Local secrets
 .env
 .env.*
-lib/core/constants/secrets.dart
 lib/core/constants/secrets_local.dart
 
 # Generated localization files
