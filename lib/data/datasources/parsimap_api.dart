@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/constants/secrets.dart';
 import '../../core/services/map_service.dart';
 import '../models/map_route.dart';
@@ -13,12 +14,17 @@ class ParsimapApi implements MapService {
       : _dio = dio ??
             Dio(
               BaseOptions(
-                baseUrl: 'https://api.parsimap.ir',
+                baseUrl: AppConstants.parsimapBaseUrl,
                 connectTimeout: const Duration(seconds: 10),
                 receiveTimeout: const Duration(seconds: 15),
               ),
             );
 
+  @override
+  String get displayName => 'پارسی‌مپ (Parsimap)';
+
+  // Routing remains disabled until a documented route geometry/polyline
+  // response is confirmed. A straight line must not be presented as a route.
   @override
   Set<RouteType> get supportedRouteTypes => const {};
 
@@ -28,6 +34,7 @@ class ParsimapApi implements MapService {
     required LatLng center,
   }) async {
     _requireServiceToken();
+
     final normalizedTerm = term.trim();
     if (normalizedTerm.isEmpty) return const [];
 
@@ -52,12 +59,10 @@ class ParsimapApi implements MapService {
         final rawLocation = item['location'] ?? geometry['location'];
         final location = _asMap(rawLocation);
 
-        final longitude =
-            (location['x'] as num?)?.toDouble() ??
-                (location['lng'] as num?)?.toDouble();
-        final latitude =
-            (location['y'] as num?)?.toDouble() ??
-                (location['lat'] as num?)?.toDouble();
+        final longitude = (location['x'] as num?)?.toDouble() ??
+            (location['lng'] as num?)?.toDouble();
+        final latitude = (location['y'] as num?)?.toDouble() ??
+            (location['lat'] as num?)?.toDouble();
 
         if (latitude == null || longitude == null) continue;
 
@@ -71,6 +76,7 @@ class ParsimapApi implements MapService {
           ),
         );
       }
+
       return places;
     } on DioException catch (error) {
       throw _mapDioError(error);
@@ -80,14 +86,16 @@ class ParsimapApi implements MapService {
   @override
   Future<String?> reverse(LatLng point) async {
     _requireServiceToken();
+
     try {
       final response = await _dio.get(
-        '/geocode/reverse',
+        AppConstants.parsimapReversePath,
         queryParameters: {
           'key': Secrets.parsimapServiceToken,
           'location': '${point.longitude},${point.latitude}',
         },
       );
+
       final data = _asMap(response.data);
       return data['address']?.toString() ??
           data['formatted_address']?.toString();
@@ -108,8 +116,7 @@ class ParsimapApi implements MapService {
   }
 
   @override
-  String get tileUrlTemplate =>
-      'https://api.parsimap.ir/tile/parsimap/{z}/{x}/{y}';
+  String get tileUrlTemplate => AppConstants.parsimapTileUrl;
 
   @override
   Map<String, String> get tileUrlParams => {
@@ -133,16 +140,23 @@ class ParsimapApi implements MapService {
 
   MapServiceException _mapDioError(DioException error) {
     final code = error.response?.statusCode;
+
     if (code == 401) {
       return const MapServiceException('توکن سرویس پارسی‌مپ نامعتبر است.');
     }
     if (code == 403) {
-      return const MapServiceException('دسترسی به سرویس پارسی‌مپ مجاز نیست.');
+      return const MapServiceException(
+        'دسترسی به سرویس پارسی‌مپ مجاز نیست.',
+      );
+    }
+    if (code == 404) {
+      return const MapServiceException('سرویس پارسی‌مپ یافت نشد.');
     }
     if (error.type == DioExceptionType.connectionTimeout ||
         error.type == DioExceptionType.receiveTimeout) {
       return const MapServiceException('ارتباط با پارسی‌مپ Timeout شد.');
     }
+
     final suffix = code == null ? '' : ' ($code)';
     return MapServiceException('خطا در ارتباط با پارسی‌مپ$suffix.');
   }

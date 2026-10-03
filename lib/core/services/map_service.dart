@@ -10,10 +10,15 @@ enum RouteType {
   bicycle('bicycle');
 
   const RouteType(this.apiValue);
+
   final String apiValue;
 }
 
 abstract class MapService {
+  String get displayName;
+
+  Set<RouteType> get supportedRouteTypes;
+
   Future<List<Place>> search({
     required String term,
     required LatLng center,
@@ -26,8 +31,6 @@ abstract class MapService {
     required LatLng destination,
     required RouteType type,
   });
-
-  Set<RouteType> get supportedRouteTypes;
 
   String get tileUrlTemplate;
 

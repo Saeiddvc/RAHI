@@ -27,6 +27,9 @@ class NeshanApi implements MapService {
             );
 
   @override
+  String get displayName => 'نشان (Neshan)';
+
+  @override
   Set<RouteType> get supportedRouteTypes =>
       const {RouteType.car, RouteType.motorcycle};
 
@@ -36,6 +39,7 @@ class NeshanApi implements MapService {
     required LatLng center,
   }) async {
     _requireApiKey();
+
     final normalizedTerm = term.trim();
     if (normalizedTerm.isEmpty) return const [];
 
@@ -59,9 +63,11 @@ class NeshanApi implements MapService {
 
       return items
           .whereType<Map>()
-          .map((item) => Place.fromNeshanJson(
-                Map<String, dynamic>.from(item),
-              ))
+          .map(
+            (item) => Place.fromNeshanJson(
+              Map<String, dynamic>.from(item),
+            ),
+          )
           .toList(growable: false);
     } on DioException catch (error) {
       throw _mapDioError(error);
@@ -71,6 +77,7 @@ class NeshanApi implements MapService {
   @override
   Future<String?> reverse(LatLng point) async {
     _requireApiKey();
+
     try {
       final response = await _dio.get(
         AppConstants.neshanReversePath,
@@ -97,7 +104,7 @@ class NeshanApi implements MapService {
 
     if (!supportedRouteTypes.contains(type)) {
       throw MapServiceException(
-        'نوع مسیر ${type.name} توسط سرویس مسیریابی ترافیکی نشان پشتیبانی نمی‌شود.',
+        'نشان مسیریابی ${type.name} را در Direction API پشتیبانی نمی‌کند.',
       );
     }
 
@@ -109,6 +116,7 @@ class NeshanApi implements MapService {
           'origin': '${origin.latitude},${origin.longitude}',
           'destination': '${destination.latitude},${destination.longitude}',
           'alternative': true,
+          'trafficZone': false,
         },
       );
 
@@ -124,16 +132,19 @@ class NeshanApi implements MapService {
 
         final leg = Map<String, dynamic>.from(legs.first as Map);
         final overview = route['overview_polyline'];
-        final overviewMap =
-            overview is Map ? Map<String, dynamic>.from(overview) : const <String, dynamic>{};
+        final overviewMap = overview is Map
+            ? Map<String, dynamic>.from(overview)
+            : const <String, dynamic>{};
         final encoded = overviewMap['points']?.toString() ?? '';
 
         final distance = leg['distance'];
         final duration = leg['duration'];
-        final distanceMap =
-            distance is Map ? Map<String, dynamic>.from(distance) : const <String, dynamic>{};
-        final durationMap =
-            duration is Map ? Map<String, dynamic>.from(duration) : const <String, dynamic>{};
+        final distanceMap = distance is Map
+            ? Map<String, dynamic>.from(distance)
+            : const <String, dynamic>{};
+        final durationMap = duration is Map
+            ? Map<String, dynamic>.from(duration)
+            : const <String, dynamic>{};
 
         result.add(
           MapRoute(
@@ -153,6 +164,9 @@ class NeshanApi implements MapService {
     }
   }
 
+  // Neshan's documented static-map endpoint is not an XYZ tile endpoint.
+  // Keep the proven raster fallback until an official interactive tile/SDK
+  // integration is selected.
   @override
   String get tileUrlTemplate => AppConstants.osmTileUrl;
 
@@ -175,19 +189,28 @@ class NeshanApi implements MapService {
 
   MapServiceException _mapDioError(DioException error) {
     final code = error.response?.statusCode;
+
     if (code == 480 || code == 401) {
       return const MapServiceException('کلید API نشان نامعتبر است.');
     }
     if (code == 481 || code == 482) {
-      return const MapServiceException('سقف یا نرخ مجاز درخواست‌های نشان رد شده است.');
+      return const MapServiceException(
+        'سقف یا نرخ مجاز درخواست‌های نشان رد شده است.',
+      );
     }
     if (code == 483 || code == 484 || code == 485) {
-      return const MapServiceException('مجوز کلید نشان برای این سرویس معتبر نیست.');
+      return const MapServiceException(
+        'مجوز کلید نشان برای این سرویس معتبر نیست.',
+      );
+    }
+    if (code == 404) {
+      return const MapServiceException('سرویس نشان یافت نشد.');
     }
     if (error.type == DioExceptionType.connectionTimeout ||
         error.type == DioExceptionType.receiveTimeout) {
       return const MapServiceException('ارتباط با نشان Timeout شد.');
     }
+
     final suffix = code == null ? '' : ' ($code)';
     return MapServiceException('خطا در ارتباط با نشان$suffix.');
   }
@@ -216,6 +239,7 @@ class NeshanApi implements MapService {
 
       shift = 0;
       result = 0;
+
       do {
         if (index >= encoded.length) return points;
         byte = encoded.codeUnitAt(index++) - 63;
