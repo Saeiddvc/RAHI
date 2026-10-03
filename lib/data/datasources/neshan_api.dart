@@ -188,9 +188,8 @@ class NeshanApi implements MapService {
         error.type == DioExceptionType.receiveTimeout) {
       return const MapServiceException('ارتباط با نشان Timeout شد.');
     }
-    return MapServiceException(
-      'خطا در ارتباط با نشان${code == null ? '' : ' (' + code.toString() + ')'}.',
-    );
+    final suffix = code == null ? '' : ' ($code)';
+    return MapServiceException('خطا در ارتباط با نشان$suffix.');
   }
 
   List<LatLng> _decodePolyline(String encoded) {
