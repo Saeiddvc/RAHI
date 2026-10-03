@@ -4,15 +4,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../providers/location_provider.dart';
 import '../../../providers/map_service_provider.dart';
 
 class RahiMap extends ConsumerWidget {
+  final MapController mapController;
   final LatLng center;
   final List<LatLng>? routePoints;
   final LatLng? destination;
 
   const RahiMap({
     super.key,
+    required this.mapController,
     required this.center,
     this.routePoints,
     this.destination,
@@ -20,6 +23,7 @@ class RahiMap extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final userLocation = ref.watch(locationProvider);
     final service = ref.watch(mapServiceProvider);
     final tileUrl = _buildTileUrl(
       service.tileUrlTemplate,
@@ -27,6 +31,7 @@ class RahiMap extends ConsumerWidget {
     );
 
     return FlutterMap(
+      mapController: mapController,
       options: MapOptions(
         initialCenter: center,
         initialZoom: AppConstants.defaultZoom,
@@ -35,29 +40,35 @@ class RahiMap extends ConsumerWidget {
       ),
       children: [
         TileLayer(
-          urlTemplate: tileUrl,
+          urlTemplate:
+              tileUrl.isEmpty ? AppConstants.osmTileUrl : tileUrl,
           userAgentPackageName: AppConstants.userAgent,
           maxZoom: 19,
         ),
-        if (routePoints != null && routePoints!.isNotEmpty)
+        if (routePoints case final points? when points.isNotEmpty)
           PolylineLayer(
             polylines: [
               Polyline(
-                points: routePoints!,
+                points: points,
                 strokeWidth: 6,
                 color: Theme.of(context).colorScheme.primary,
               ),
             ],
           ),
-        MarkerLayer(
-          markers: [
-            Marker(
-              point: center,
-              width: 44,
-              height: 44,
-              child: const _UserMarker(),
-            ),
-            if (destination != null)
+        if (userLocation != null)
+          MarkerLayer(
+            markers: [
+              Marker(
+                point: userLocation,
+                width: 44,
+                height: 44,
+                child: const _UserMarker(),
+              ),
+            ],
+          ),
+        if (destination != null)
+          MarkerLayer(
+            markers: [
               Marker(
                 point: destination!,
                 width: 44,
@@ -68,8 +79,8 @@ class RahiMap extends ConsumerWidget {
                   color: Colors.redAccent,
                 ),
               ),
-          ],
-        ),
+            ],
+          ),
       ],
     );
   }
@@ -83,7 +94,8 @@ class RahiMap extends ConsumerWidget {
     final encoded = params.entries
         .map(
           (entry) =>
-              '${Uri.encodeQueryComponent(entry.key)}=${Uri.encodeQueryComponent(entry.value)}',
+              '${Uri.encodeQueryComponent(entry.key)}='
+              '${Uri.encodeQueryComponent(entry.value)}',
         )
         .join('&');
 
