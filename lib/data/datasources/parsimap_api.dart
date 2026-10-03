@@ -143,8 +143,7 @@ class ParsimapApi implements MapService {
         error.type == DioExceptionType.receiveTimeout) {
       return const MapServiceException('ارتباط با پارسی‌مپ Timeout شد.');
     }
-    return MapServiceException(
-      'خطا در ارتباط با پارسی‌مپ${code == null ? '' : ' (' + code.toString() + ')'}.',
-    );
+    final suffix = code == null ? '' : ' ($code)';
+    return MapServiceException('خطا در ارتباط با پارسی‌مپ$suffix.');
   }
 }
