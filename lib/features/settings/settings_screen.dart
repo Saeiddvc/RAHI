@@ -121,7 +121,7 @@ class SettingsScreen extends ConsumerWidget {
                   selected: providerKind == MapProviderKind.neshan,
                   onTap: () {
                     providerNotifier.state = MapProviderKind.neshan;
-                    if (!NeshanSupportedRouteTypes.contains(
+                    if (!_neshanSupportedRouteTypes.contains(
                       settings.routeType,
                     )) {
                       settingsNotifier.setRouteType(RouteType.car);
@@ -156,7 +156,7 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  static const Set<RouteType> NeshanSupportedRouteTypes = {
+  static const Set<RouteType> _neshanSupportedRouteTypes = {
     RouteType.car,
     RouteType.motorcycle,
   };
