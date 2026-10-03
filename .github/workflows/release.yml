@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - 'v1-commit-14-release'
   workflow_dispatch:
     inputs:
       smoke_test:
@@ -88,7 +90,7 @@ jobs:
         run: flutter test
 
       - name: Validate production release secrets
-        if: github.event_name == 'push' || inputs.smoke_test == false
+        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.smoke_test == false)
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -104,7 +106,7 @@ jobs:
           test -n "$NESHAN_API_KEY" || { echo "NESHAN_API_KEY is required for production release"; exit 1; }
 
       - name: Create disposable CI signing key
-        if: github.event_name == 'workflow_dispatch' && inputs.smoke_test == true
+        if: (github.event_name == 'push' && github.ref_type == 'branch') || (github.event_name == 'workflow_dispatch' && inputs.smoke_test == true)
         shell: bash
         run: |
           keytool -genkeypair             -storetype PKCS12             -keystore android/app/rahi-ci-smoke.jks             -storepass ci-smoke-pass             -keypass ci-smoke-pass             -alias rahi-ci-smoke             -keyalg RSA             -keysize 2048             -validity 30             -dname "CN=RAHI CI Smoke, OU=CI, O=RAHI, L=CI, ST=CI, C=IR"
@@ -117,7 +119,7 @@ jobs:
           EOF
 
       - name: Configure production signing
-        if: github.event_name == 'push' || inputs.smoke_test == false
+        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.smoke_test == false)
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
