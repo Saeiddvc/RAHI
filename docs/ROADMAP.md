@@ -43,9 +43,9 @@
 | 10 | voice + turn-by-turn | انجام شده |
 | 11 | off-route + remaining steps | انجام شده |
 | 12 | reroute with confirmation | انجام شده |
-| 13 | documentation | این Commit |
-| 14 | release CI + signing setup | آینده |
-| 15 | polish + version + release tag | آینده |
+| 13 | documentation | انجام شده |
+| 14 | release CI + signing setup | انجام شده |
+| 15 | polish + version RC (بدون Tag) | این Commit |
 
 ## Release Gate پیش از v1.0.0 Final
 

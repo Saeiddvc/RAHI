@@ -77,6 +77,29 @@ void main() {
       expect(updated.remainingDurationSeconds, 65);
     });
 
+    test('route without steps exposes no maneuver state', () {
+      final noStepsRoute = MapRoute(
+        points: const [
+          LatLng(35.70, 51.40),
+          LatLng(35.80, 51.50),
+        ],
+        distanceMeters: 5000,
+        durationSeconds: 600,
+      );
+
+      final state = NavigationState(
+        route: noStepsRoute,
+        remainingDistanceMeters: noStepsRoute.distanceMeters,
+        remainingDurationSeconds: noStepsRoute.durationSeconds,
+      );
+
+      expect(state.currentStep, isNull);
+      expect(state.nextStep, isNull);
+      expect(state.remainingSteps, isEmpty);
+      expect(state.remainingDistanceMeters, 5000);
+      expect(state.remainingDurationSeconds, 600);
+    });
+
     test('destination is preserved by copyWith', () {
       final state = NavigationState(
         route: route,

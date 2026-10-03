@@ -141,7 +141,7 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 32),
           Center(
             child: Text(
-              '${l10n.appName} — ${l10n.version} 0.1.0',
+              '${l10n.appName} — ${l10n.version} 1.0.0',
               style: TextStyle(
                 color: Theme.of(context)
                     .colorScheme
