@@ -108,6 +108,18 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
 
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+
+      - name: Generate native splash
+        run: dart run flutter_native_splash:create
+
+      - name: Verify generated Android branding
+        shell: bash
+        run: |
+          test -f android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+          find android/app/src/main/res -type f \( -path '*mipmap*' -o -path '*drawable*' -o -path '*values*' \) | sort
+
       - name: Generate localizations
         run: flutter gen-l10n
 
@@ -151,6 +163,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: RAHI-v0.1.0-debug
+          name: RAHI-v1.0.0-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
