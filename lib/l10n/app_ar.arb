@@ -54,5 +54,9 @@
   "voiceDisclosure": "يتم تشغيل الإرشاد الصوتي بواسطة محرك النطق في جهازك",
   "remainingSteps": "الخطوات المتبقية",
   "offRoute": "خارج المسار",
-  "offRouteHint": "عد إلى المسار المقترح"
+  "offRouteHint": "عد إلى المسار المقترح",
+  "offRouteTitle": "خارج المسار",
+  "offRouteMessage": "يبدو أنك خرجت عن المسار المقترح. هل تريد حساب مسار جديد؟",
+  "offRouteDismiss": "لا، سأعود بنفسي",
+  "offRouteReroute": "نعم، مسار جديد"
 }

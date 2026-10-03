@@ -1,6 +1,8 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:rahi/data/models/map_route.dart';
+import 'package:rahi/data/models/place.dart';
 import 'package:rahi/data/models/route_step.dart';
 import 'package:rahi/features/navigation/providers/navigation_provider.dart';
 
@@ -38,6 +40,12 @@ void main() {
       ],
     );
 
+    const destination = Place(
+      title: 'مقصد',
+      address: 'تهران',
+      location: LatLng(35.71, 51.41),
+    );
+
     test('currentStep and nextStep follow target index', () {
       final state = NavigationState(
         route: route,
@@ -68,5 +76,36 @@ void main() {
       expect(updated.remainingDistanceMeters, 480);
       expect(updated.remainingDurationSeconds, 65);
     });
+
+    test('destination is preserved by copyWith', () {
+      final state = NavigationState(
+        route: route,
+        destination: destination,
+        isActive: true,
+      );
+
+      final updated = state.copyWith(isOffRoute: true);
+
+      expect(updated.destination, same(destination));
+      expect(updated.isOffRoute, isTrue);
+    });
+  });
+
+  test('acceptReroute without destination is a no-op', () async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    final before = container.read(navigationProvider);
+
+    await container
+        .read(navigationProvider.notifier)
+        .acceptReroute(const LatLng(35.70, 51.40));
+
+    final after = container.read(navigationProvider);
+
+    expect(after.route, before.route);
+    expect(after.destination, before.destination);
+    expect(after.isRerouting, isFalse);
+    expect(after.pendingRerouteConfirmation, isFalse);
   });
 }

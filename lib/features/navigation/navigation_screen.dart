@@ -26,6 +26,7 @@ class NavigationScreen extends ConsumerStatefulWidget {
 class _NavigationScreenState
     extends ConsumerState<NavigationScreen> {
   final MapController _mapController = MapController();
+  bool _rerouteDialogOpen = false;
 
   @override
   void dispose() {
@@ -58,6 +59,38 @@ class _NavigationScreenState
       });
     });
 
+    ref.listen<bool>(
+      navigationProvider.select(
+        (state) => state.pendingRerouteConfirmation,
+      ),
+      (previous, next) {
+        if (next && !_rerouteDialogOpen) {
+          unawaited(_showRerouteDialog());
+        }
+      },
+    );
+
+    ref.listen<String?>(
+      navigationProvider.select((state) => state.rerouteError),
+      (previous, next) {
+        if (next == null || next == previous) return;
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${l10n.errorOccurred}: $next'),
+            ),
+          );
+
+          ref
+              .read(navigationProvider.notifier)
+              .clearRerouteError();
+        });
+      },
+    );
+
     if (route == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) context.go('/');
@@ -82,7 +115,8 @@ class _NavigationScreenState
             routes: [route],
             selectedRouteIndex: 0,
             destination:
-                route.points.isNotEmpty ? route.points.last : null,
+                navigation.destination?.location ??
+                (route.points.isNotEmpty ? route.points.last : null),
           ),
           Positioned(
             top: MediaQuery.paddingOf(context).top + 8,
@@ -103,6 +137,32 @@ class _NavigationScreenState
               ],
             ),
           ),
+          if (navigation.isRerouting)
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 86,
+              left: 12,
+              right: 12,
+              child: Material(
+                elevation: 4,
+                borderRadius: BorderRadius.circular(12),
+                color: Theme.of(context).colorScheme.surface,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      const SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(l10n.loading),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           if (!navigation.arrived && navigation.remainingSteps.isNotEmpty)
             PositionedDirectional(
               end: 16,
@@ -123,13 +183,64 @@ class _NavigationScreenState
                   navigation.remainingDistanceMeters,
               remainingDurationSeconds:
                   navigation.remainingDurationSeconds,
-              isOffRoute: navigation.isOffRoute,
+              isOffRoute:
+                  navigation.isOffRoute && !navigation.isRerouting,
               onExit: _exitNavigation,
             ),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _showRerouteDialog() async {
+    if (_rerouteDialogOpen || !mounted) return;
+
+    _rerouteDialogOpen = true;
+    final l10n = AppLocalizations.of(context)!;
+    final userLocation = ref.read(locationProvider);
+
+    if (userLocation == null) {
+      ref.read(navigationProvider.notifier).dismissReroute();
+      _rerouteDialogOpen = false;
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          icon: const Icon(Icons.alt_route, size: 32),
+          title: Text(l10n.offRouteTitle),
+          content: Text(l10n.offRouteMessage),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(false),
+              child: Text(l10n.offRouteDismiss),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(true),
+              child: Text(l10n.offRouteReroute),
+            ),
+          ],
+        );
+      },
+    );
+
+    _rerouteDialogOpen = false;
+
+    if (!mounted) return;
+
+    if (confirmed == true) {
+      await ref
+          .read(navigationProvider.notifier)
+          .acceptReroute(userLocation);
+    } else {
+      ref.read(navigationProvider.notifier).dismissReroute();
+    }
   }
 
   Future<void> _openRemainingSteps() async {

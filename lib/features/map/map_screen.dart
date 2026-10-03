@@ -286,8 +286,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       return;
     }
 
+    final routing = ref.read(routingProvider);
+
     await ref.read(navigationProvider.notifier).start(
           route,
+          destination: routing.destination,
           initialLocation: ref.read(locationProvider),
         );
 

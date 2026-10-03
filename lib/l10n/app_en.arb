@@ -54,5 +54,9 @@
   "voiceDisclosure": "Voice guidance is provided by your device TTS engine",
   "remainingSteps": "Remaining steps",
   "offRoute": "Off route",
-  "offRouteHint": "Return to the suggested route"
+  "offRouteHint": "Return to the suggested route",
+  "offRouteTitle": "Off route",
+  "offRouteMessage": "You seem to have left the suggested route. Calculate a new route?",
+  "offRouteDismiss": "No, I'll return",
+  "offRouteReroute": "Yes, reroute"
 }

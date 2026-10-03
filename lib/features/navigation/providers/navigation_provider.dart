@@ -1,14 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/services/voice_service.dart';
 import '../../../data/models/map_route.dart';
+import '../../../data/models/place.dart';
 import '../../../data/models/route_step.dart';
+import '../../../providers/map_service_provider.dart';
 import '../../../providers/settings_provider.dart';
 import '../utils/off_route_detector.dart';
 
 class NavigationState {
   final MapRoute? route;
+  final Place? destination;
 
   /// Index of the upcoming maneuver target in route.steps.
   final int currentStepIndex;
@@ -19,9 +24,13 @@ class NavigationState {
   final bool isActive;
   final bool voiceUnavailable;
   final bool isOffRoute;
+  final bool isRerouting;
+  final bool pendingRerouteConfirmation;
+  final String? rerouteError;
 
   const NavigationState({
     this.route,
+    this.destination,
     this.currentStepIndex = 0,
     this.distanceToNextStepMeters = 0,
     this.remainingDistanceMeters = 0,
@@ -30,6 +39,9 @@ class NavigationState {
     this.isActive = false,
     this.voiceUnavailable = false,
     this.isOffRoute = false,
+    this.isRerouting = false,
+    this.pendingRerouteConfirmation = false,
+    this.rerouteError,
   });
 
   RouteStep? get currentStep {
@@ -67,6 +79,7 @@ class NavigationState {
 
   NavigationState copyWith({
     MapRoute? route,
+    Place? destination,
     int? currentStepIndex,
     double? distanceToNextStepMeters,
     double? remainingDistanceMeters,
@@ -75,10 +88,15 @@ class NavigationState {
     bool? isActive,
     bool? voiceUnavailable,
     bool? isOffRoute,
+    bool? isRerouting,
+    bool? pendingRerouteConfirmation,
+    String? rerouteError,
     bool clearRoute = false,
+    bool clearRerouteError = false,
   }) {
     return NavigationState(
       route: clearRoute ? null : (route ?? this.route),
+      destination: destination ?? this.destination,
       currentStepIndex: currentStepIndex ?? this.currentStepIndex,
       distanceToNextStepMeters:
           distanceToNextStepMeters ?? this.distanceToNextStepMeters,
@@ -90,6 +108,11 @@ class NavigationState {
       isActive: isActive ?? this.isActive,
       voiceUnavailable: voiceUnavailable ?? this.voiceUnavailable,
       isOffRoute: isOffRoute ?? this.isOffRoute,
+      isRerouting: isRerouting ?? this.isRerouting,
+      pendingRerouteConfirmation:
+          pendingRerouteConfirmation ?? this.pendingRerouteConfirmation,
+      rerouteError:
+          clearRerouteError ? null : (rerouteError ?? this.rerouteError),
     );
   }
 }
@@ -102,14 +125,19 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
 
   static const double _stepAdvanceThresholdMeters = 30;
   static const double _preAnnounceThresholdMeters = 250;
+  static const Duration _offRouteGrace = Duration(seconds: 6);
 
   int _preAnnouncedStepIndex = -1;
   bool _arrivalAnnounced = false;
+  bool _rerouteOfferedForCurrentOffRoute = false;
+  Timer? _offRouteGraceTimer;
 
   Future<void> start(
     MapRoute route, {
+    Place? destination,
     LatLng? initialLocation,
   }) async {
+    _resetRerouteTracking();
     _preAnnouncedStepIndex = -1;
     _arrivalAnnounced = false;
 
@@ -117,6 +145,7 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
 
     state = NavigationState(
       route: route,
+      destination: destination,
       currentStepIndex: firstTargetIndex,
       remainingDistanceMeters: route.distanceMeters,
       remainingDurationSeconds: route.durationSeconds,
@@ -131,10 +160,12 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
   }
 
   Future<void> stop() async {
+    _offRouteGraceTimer?.cancel();
     await _ref.read(voiceServiceProvider).stop();
     state = const NavigationState();
     _preAnnouncedStepIndex = -1;
     _arrivalAnnounced = false;
+    _rerouteOfferedForCurrentOffRoute = false;
   }
 
   Future<void> updateUserLocation(LatLng userLocation) async {
@@ -142,16 +173,7 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
     if (!state.isActive || route == null) return;
     if (state.arrived) return;
 
-    final distanceToRoute = OffRouteDetector.distanceToRoute(
-      userLocation,
-      route.points,
-    );
-    final isOffRoute =
-        distanceToRoute > OffRouteDetector.offRouteThresholdMeters;
-
-    if (isOffRoute != state.isOffRoute) {
-      state = state.copyWith(isOffRoute: isOffRoute);
-    }
+    _updateOffRoute(userLocation, route);
 
     if (!route.hasSteps) return;
 
@@ -193,6 +215,164 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
     if (distanceToTarget <= _preAnnounceThresholdMeters) {
       await _preAnnounceCurrentStep();
     }
+  }
+
+  void _updateOffRoute(
+    LatLng userLocation,
+    MapRoute route,
+  ) {
+    final distanceToRoute = OffRouteDetector.distanceToRoute(
+      userLocation,
+      route.points,
+    );
+    final isOffRoute =
+        distanceToRoute > OffRouteDetector.offRouteThresholdMeters;
+
+    if (!isOffRoute) {
+      _offRouteGraceTimer?.cancel();
+      _offRouteGraceTimer = null;
+      _rerouteOfferedForCurrentOffRoute = false;
+
+      if (state.isOffRoute || state.pendingRerouteConfirmation) {
+        state = state.copyWith(
+          isOffRoute: false,
+          pendingRerouteConfirmation: false,
+        );
+      }
+      return;
+    }
+
+    if (!state.isOffRoute) {
+      state = state.copyWith(isOffRoute: true);
+    }
+
+    if (_rerouteOfferedForCurrentOffRoute ||
+        state.pendingRerouteConfirmation ||
+        state.isRerouting ||
+        state.destination == null ||
+        _offRouteGraceTimer != null) {
+      return;
+    }
+
+    _offRouteGraceTimer = Timer(_offRouteGrace, () {
+      _offRouteGraceTimer = null;
+
+      if (!mounted ||
+          !state.isActive ||
+          !state.isOffRoute ||
+          state.arrived ||
+          state.destination == null ||
+          state.isRerouting ||
+          _rerouteOfferedForCurrentOffRoute) {
+        return;
+      }
+
+      _rerouteOfferedForCurrentOffRoute = true;
+      state = state.copyWith(
+        pendingRerouteConfirmation: true,
+      );
+    });
+  }
+
+  void dismissReroute() {
+    _offRouteGraceTimer?.cancel();
+    _offRouteGraceTimer = null;
+    _rerouteOfferedForCurrentOffRoute = true;
+
+    state = state.copyWith(
+      pendingRerouteConfirmation: false,
+    );
+  }
+
+  Future<void> acceptReroute(LatLng currentLocation) async {
+    final destination = state.destination;
+    if (destination == null || !state.isActive) {
+      return;
+    }
+
+    _offRouteGraceTimer?.cancel();
+    _offRouteGraceTimer = null;
+
+    state = state.copyWith(
+      pendingRerouteConfirmation: false,
+      isRerouting: true,
+      clearRerouteError: true,
+    );
+
+    try {
+      final service = _ref.read(mapServiceProvider);
+      final routeType = _ref.read(settingsProvider).routeType;
+
+      if (!service.supportedRouteTypes.contains(routeType)) {
+        throw StateError(
+          'Route type ${routeType.name} is not supported by '
+          '${service.displayName}.',
+        );
+      }
+
+      final routes = await service.direction(
+        origin: currentLocation,
+        destination: destination.location,
+        type: routeType,
+      );
+
+      if (!mounted) return;
+
+      if (routes.isEmpty) {
+        state = state.copyWith(
+          isRerouting: false,
+          rerouteError: 'No route returned by the active map service.',
+        );
+        _rerouteOfferedForCurrentOffRoute = true;
+        return;
+      }
+
+      final newRoute = routes.first;
+      final firstTargetIndex = _initialTargetIndex(newRoute);
+
+      _preAnnouncedStepIndex = -1;
+      _arrivalAnnounced = false;
+      _rerouteOfferedForCurrentOffRoute = false;
+
+      state = state.copyWith(
+        route: newRoute,
+        currentStepIndex: firstTargetIndex,
+        distanceToNextStepMeters: 0,
+        remainingDistanceMeters: newRoute.distanceMeters,
+        remainingDurationSeconds: newRoute.durationSeconds,
+        arrived: false,
+        isRerouting: false,
+        isOffRoute: false,
+        pendingRerouteConfirmation: false,
+        clearRerouteError: true,
+      );
+
+      await _announceDepartureIfPresent(newRoute);
+
+      if (mounted) {
+        await updateUserLocation(currentLocation);
+      }
+    } catch (error) {
+      if (!mounted) return;
+
+      _rerouteOfferedForCurrentOffRoute = true;
+      state = state.copyWith(
+        isRerouting: false,
+        pendingRerouteConfirmation: false,
+        rerouteError: error.toString(),
+      );
+    }
+  }
+
+  void clearRerouteError() {
+    if (state.rerouteError == null) return;
+    state = state.copyWith(clearRerouteError: true);
+  }
+
+  void _resetRerouteTracking() {
+    _offRouteGraceTimer?.cancel();
+    _offRouteGraceTimer = null;
+    _rerouteOfferedForCurrentOffRoute = false;
   }
 
   int _initialTargetIndex(MapRoute route) {
@@ -277,12 +457,16 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
   }
 
   Future<void> _onArrived() async {
+    _offRouteGraceTimer?.cancel();
+    _offRouteGraceTimer = null;
+
     state = state.copyWith(
       distanceToNextStepMeters: 0,
       remainingDistanceMeters: 0,
       remainingDurationSeconds: 0,
       arrived: true,
       isOffRoute: false,
+      pendingRerouteConfirmation: false,
     );
 
     if (_arrivalAnnounced || !_voiceEnabled) return;
@@ -329,6 +513,12 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
       'ar' => 'لقد وصلت إلى وجهتك',
       _ => 'You have arrived at your destination',
     };
+  }
+
+  @override
+  void dispose() {
+    _offRouteGraceTimer?.cancel();
+    super.dispose();
   }
 }
 

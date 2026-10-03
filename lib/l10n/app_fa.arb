@@ -54,5 +54,9 @@
   "voiceDisclosure": "راهنمای صوتی توسط موتور TTS دستگاه شما خوانده می‌شود",
   "remainingSteps": "گام‌های باقی‌مانده",
   "offRoute": "خارج از مسیر",
-  "offRouteHint": "به مسیر پیشنهادی برگردید"
+  "offRouteHint": "به مسیر پیشنهادی برگردید",
+  "offRouteTitle": "خارج از مسیر",
+  "offRouteMessage": "به نظر می‌رسد از مسیر پیشنهادی خارج شده‌اید. آیا مسیر جدید محاسبه شود؟",
+  "offRouteDismiss": "نه، خودم برمی‌گردم",
+  "offRouteReroute": "بله، مسیر جدید"
 }
