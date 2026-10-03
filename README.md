@@ -57,14 +57,14 @@ Build-PASS به معنی Device-PASS یا Live-API-PASS نیست.
 
 ## بازتولید Branding
 
-Source assetها در `assets/icon/` نگهداری می‌شوند.
+Source assetهای PNG به‌صورت deterministic توسط `tools/generate_icon.py` داخل `assets/icon/` تولید می‌شوند و در Git نگهداری نمی‌شوند؛ اسکریپت source-of-truth است.
 
     python -m pip install Pillow
     python tools/generate_icon.py
     dart run flutter_launcher_icons
     dart run flutter_native_splash:create
 
-Debug و Release CI نیز generatorهای launcher icon و native splash را پس از ساخت Android scaffold اجرا می‌کنند.
+Debug و Release CI ابتدا با Pillow source PNGها را تولید می‌کنند و سپس generatorهای launcher icon و native splash را پس از ساخت Android scaffold اجرا می‌کنند.
 
 ## Secrets
 

@@ -108,6 +108,11 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
 
+      - name: Generate branding source assets
+        run: |
+          python -m pip install --disable-pip-version-check Pillow
+          python tools/generate_icon.py
+
       - name: Generate launcher icons
         run: dart run flutter_launcher_icons
 

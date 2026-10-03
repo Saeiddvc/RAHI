@@ -30,3 +30,6 @@ lib/l10n/app_localizations*.dart
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated branding source assets
+assets/icon/*.png
