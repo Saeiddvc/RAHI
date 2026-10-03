@@ -1,0 +1,73 @@
+name: RAHI Android CI
+
+on:
+  push:
+    branches:
+      - bootstrap-v0.1.0
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Generate Android scaffold
+        shell: bash
+        run: |
+          mkdir -p /tmp/rahi-source
+          cp -R lib /tmp/rahi-source/lib
+          cp -R test /tmp/rahi-source/test
+          cp pubspec.yaml /tmp/rahi-source/pubspec.yaml
+          cp analysis_options.yaml /tmp/rahi-source/analysis_options.yaml
+
+          flutter create . \
+            --platforms=android \
+            --project-name=rahi \
+            --org=ir.rahi
+
+          rm -rf lib test
+          cp -R /tmp/rahi-source/lib ./lib
+          cp -R /tmp/rahi-source/test ./test
+          cp /tmp/rahi-source/pubspec.yaml ./pubspec.yaml
+          cp /tmp/rahi-source/analysis_options.yaml ./analysis_options.yaml
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Verify formatting
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Static analysis
+        run: flutter analyze
+
+      - name: Unit tests
+        run: flutter test
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RAHI-v0.1.0-debug
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
