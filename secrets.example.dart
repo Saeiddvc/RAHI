@@ -1,3 +1,6 @@
+// Non-secret template used by local development and CI.
+// Copy this file to lib/core/constants/secrets.dart when working locally.
+
 class Secrets {
   Secrets._();
 

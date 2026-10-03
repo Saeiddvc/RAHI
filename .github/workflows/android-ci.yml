@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - bootstrap-v0.1.0
+      - 'v1-commit-*'
   pull_request:
     branches:
       - main
@@ -29,6 +30,9 @@ jobs:
 
       - name: Flutter version
         run: flutter --version
+
+      - name: Prepare non-secret constants
+        run: cp secrets.example.dart lib/core/constants/secrets.dart
 
       - name: Generate Android scaffold
         shell: bash

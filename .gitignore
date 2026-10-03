@@ -19,6 +19,7 @@ key.properties
 # Local secrets
 .env
 .env.*
+lib/core/constants/secrets.dart
 lib/core/constants/secrets_local.dart
 
 # OS
