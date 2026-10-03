@@ -1,11 +1,14 @@
 import 'package:latlong2/latlong.dart';
 
+import 'route_step.dart';
+
 class MapRoute {
   final List<LatLng> points;
   final double distanceMeters;
   final int durationSeconds;
   final String? trafficStatus;
   final String? summary;
+  final List<RouteStep> steps;
 
   const MapRoute({
     required this.points,
@@ -13,7 +16,10 @@ class MapRoute {
     required this.durationSeconds,
     this.trafficStatus,
     this.summary,
+    this.steps = const [],
   });
+
+  bool get hasSteps => steps.isNotEmpty;
 
   MapRoute copyWith({
     List<LatLng>? points,
@@ -21,6 +27,7 @@ class MapRoute {
     int? durationSeconds,
     String? trafficStatus,
     String? summary,
+    List<RouteStep>? steps,
   }) {
     return MapRoute(
       points: points ?? this.points,
@@ -28,6 +35,7 @@ class MapRoute {
       durationSeconds: durationSeconds ?? this.durationSeconds,
       trafficStatus: trafficStatus ?? this.trafficStatus,
       summary: summary ?? this.summary,
+      steps: steps ?? this.steps,
     );
   }
 }
