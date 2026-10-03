@@ -78,6 +78,7 @@ jobs:
           grep -F 'android.permission.ACCESS_NETWORK_STATE' android/app/src/main/AndroidManifest.xml
           grep -F 'android.permission.ACCESS_FINE_LOCATION' android/app/src/main/AndroidManifest.xml
           grep -F 'android.permission.ACCESS_COARSE_LOCATION' android/app/src/main/AndroidManifest.xml
+          grep -F 'android.intent.action.TTS_SERVICE' android/app/src/main/AndroidManifest.xml
           grep -F 'android:usesCleartextTraffic="false"' android/app/src/main/AndroidManifest.xml
           grep -F 'android:supportsRtl="true"' android/app/src/main/AndroidManifest.xml
           grep -F '<string name="app_name">راهی</string>' android/app/src/main/res/values/strings.xml
@@ -121,6 +122,7 @@ jobs:
           grep -F 'android.permission.ACCESS_NETWORK_STATE' "$MERGED_MANIFEST"
           grep -F 'android.permission.ACCESS_FINE_LOCATION' "$MERGED_MANIFEST"
           grep -F 'android.permission.ACCESS_COARSE_LOCATION' "$MERGED_MANIFEST"
+          grep -F 'android.intent.action.TTS_SERVICE' "$MERGED_MANIFEST"
           grep -F 'android:usesCleartextTraffic="false"' "$MERGED_MANIFEST"
           grep -F 'android:supportsRtl="true"' "$MERGED_MANIFEST"
 

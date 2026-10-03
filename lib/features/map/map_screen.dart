@@ -10,6 +10,7 @@ import '../../data/models/place.dart';
 import '../../l10n/app_localizations.dart';
 import '../../providers/location_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../navigation/providers/navigation_provider.dart';
 import 'providers/routing_provider.dart';
 import 'providers/search_provider.dart';
 import 'widgets/locate_fab.dart';
@@ -273,14 +274,25 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  void _onStartNavigation(MapRoute _) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          AppLocalizations.of(context)!.comingSoon,
+  Future<void> _onStartNavigation(MapRoute route) async {
+    if (!route.hasSteps) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)!.serviceNotAvailable,
+          ),
         ),
-      ),
-    );
+      );
+      return;
+    }
+
+    await ref.read(navigationProvider.notifier).start(
+          route,
+          initialLocation: ref.read(locationProvider),
+        );
+
+    if (!mounted) return;
+    context.push('/navigation');
   }
 }
 

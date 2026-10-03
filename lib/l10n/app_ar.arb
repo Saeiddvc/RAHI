@@ -43,5 +43,13 @@
   "comingSoon": "قريباً",
   "serviceNotAvailable": "هذه الخدمة غير متوفرة",
   "aboutApp": "حول راحي",
-  "version": "الإصدار"
+  "version": "الإصدار",
+  "navigation": "الملاحة",
+  "exitNavigation": "إنهاء الملاحة",
+  "arrived": "لقد وصلت إلى وجهتك",
+  "nextTurn": "المنعطف التالي",
+  "remaining": "المتبقي",
+  "eta": "وقت الوصول",
+  "voiceNotAvailable": "الإرشاد الصوتي غير متوفر على هذا الجهاز",
+  "voiceDisclosure": "يتم تشغيل الإرشاد الصوتي بواسطة محرك النطق في جهازك"
 }

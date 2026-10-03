@@ -1,0 +1,412 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
+
+import '../../core/constants/app_constants.dart';
+import '../../core/utils/formatters.dart';
+import '../../data/models/route_step.dart';
+import '../../l10n/app_localizations.dart';
+import '../../providers/location_provider.dart';
+import '../map/widgets/rahi_map.dart';
+import 'providers/navigation_provider.dart';
+
+class NavigationScreen extends ConsumerStatefulWidget {
+  const NavigationScreen({super.key});
+
+  @override
+  ConsumerState<NavigationScreen> createState() =>
+      _NavigationScreenState();
+}
+
+class _NavigationScreenState
+    extends ConsumerState<NavigationScreen> {
+  final MapController _mapController = MapController();
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final navigation = ref.watch(navigationProvider);
+    final userLocation = ref.watch(locationProvider);
+    final route = navigation.route;
+
+    ref.listen<LatLng?>(locationProvider, (previous, next) {
+      if (next == null) return;
+
+      unawaited(
+        ref.read(navigationProvider.notifier).updateUserLocation(next),
+      );
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+
+        try {
+          _mapController.move(next, 16);
+        } catch (_) {
+          // The map controller may not yet be attached on the first frame.
+        }
+      });
+    });
+
+    if (route == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) context.go('/');
+      });
+      return const SizedBox.shrink();
+    }
+
+    final center = userLocation ??
+        (route.points.isNotEmpty
+            ? route.points.first
+            : const LatLng(
+                AppConstants.defaultLat,
+                AppConstants.defaultLng,
+              ));
+
+    return Scaffold(
+      body: Stack(
+        children: [
+          RahiMap(
+            mapController: _mapController,
+            center: center,
+            routes: [route],
+            selectedRouteIndex: 0,
+            destination:
+                route.points.isNotEmpty ? route.points.last : null,
+          ),
+          Positioned(
+            top: MediaQuery.paddingOf(context).top + 8,
+            left: 8,
+            right: 8,
+            child: Column(
+              children: [
+                _ManeuverBanner(
+                  step: navigation.currentStep,
+                  distance: navigation.distanceToNextStepMeters,
+                  locale: Localizations.localeOf(context).languageCode,
+                  arrived: navigation.arrived,
+                ),
+                if (navigation.voiceUnavailable) ...[
+                  const SizedBox(height: 8),
+                  _VoiceWarning(message: l10n.voiceNotAvailable),
+                ],
+              ],
+            ),
+          ),
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: _NavigationBottomCard(
+              remainingDistanceMeters:
+                  navigation.remainingDistanceMeters,
+              remainingDurationSeconds:
+                  navigation.remainingDurationSeconds,
+              onExit: _exitNavigation,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _exitNavigation() async {
+    await ref.read(navigationProvider.notifier).stop();
+
+    if (!mounted) return;
+
+    if (Navigator.of(context).canPop()) {
+      context.pop();
+    } else {
+      context.go('/');
+    }
+  }
+}
+
+class _ManeuverBanner extends StatelessWidget {
+  final RouteStep? step;
+  final double distance;
+  final String locale;
+  final bool arrived;
+
+  const _ManeuverBanner({
+    required this.step,
+    required this.distance,
+    required this.locale,
+    required this.arrived,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
+
+    if (arrived) {
+      return Material(
+        elevation: 6,
+        borderRadius: BorderRadius.circular(14),
+        color: colors.secondary,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.check_circle,
+                color: Colors.white,
+                size: 32,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  l10n.arrived,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (step == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Material(
+      elevation: 6,
+      borderRadius: BorderRadius.circular(14),
+      color: colors.primary,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(
+              _iconFor(step!.maneuver),
+              color: Colors.white,
+              size: 40,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    Formatters.distance(distance, locale),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    step!.instruction,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _iconFor(ManeuverType maneuver) {
+    return switch (maneuver) {
+      ManeuverType.turnLeft => Icons.turn_left,
+      ManeuverType.turnRight => Icons.turn_right,
+      ManeuverType.turnSlightLeft => Icons.turn_slight_left,
+      ManeuverType.turnSlightRight => Icons.turn_slight_right,
+      ManeuverType.turnSharpLeft => Icons.turn_sharp_left,
+      ManeuverType.turnSharpRight => Icons.turn_sharp_right,
+      ManeuverType.uTurn => Icons.u_turn_left,
+      ManeuverType.straight => Icons.straight,
+      ManeuverType.roundabout => Icons.roundabout_left,
+      ManeuverType.merge => Icons.merge,
+      ManeuverType.fork => Icons.fork_left,
+      ManeuverType.onRamp => Icons.ramp_right,
+      ManeuverType.offRamp => Icons.ramp_left,
+      ManeuverType.arrive => Icons.flag,
+      ManeuverType.depart => Icons.navigation,
+      ManeuverType.unknown => Icons.navigation_outlined,
+    };
+  }
+}
+
+class _VoiceWarning extends StatelessWidget {
+  final String message;
+
+  const _VoiceWarning({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 3,
+      borderRadius: BorderRadius.circular(10),
+      color: Theme.of(context).colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 10,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.volume_off_outlined,
+              color: Theme.of(context).colorScheme.onErrorContainer,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NavigationBottomCard extends StatelessWidget {
+  final double remainingDistanceMeters;
+  final int remainingDurationSeconds;
+  final VoidCallback onExit;
+
+  const _NavigationBottomCard({
+    required this.remainingDistanceMeters,
+    required this.remainingDurationSeconds,
+    required this.onExit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final locale = Localizations.localeOf(context).languageCode;
+
+    return SafeArea(
+      top: false,
+      child: Card(
+        margin: const EdgeInsets.all(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _Stat(
+                      icon: Icons.straighten,
+                      label: l10n.remaining,
+                      value: Formatters.distance(
+                        remainingDistanceMeters,
+                        locale,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: 40,
+                    color: Theme.of(context).dividerColor,
+                  ),
+                  Expanded(
+                    child: _Stat(
+                      icon: Icons.access_time,
+                      label: l10n.duration,
+                      value: Formatters.duration(
+                        remainingDurationSeconds,
+                        locale,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onExit,
+                  icon: const Icon(Icons.close),
+                  label: Text(l10n.exitNavigation),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _Stat({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(
+          icon,
+          size: 18,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Theme.of(context)
+                .colorScheme
+                .onSurface
+                .withValues(alpha: 0.6),
+          ),
+        ),
+      ],
+    );
+  }
+}

@@ -43,5 +43,13 @@
   "comingSoon": "Coming soon",
   "serviceNotAvailable": "This service is not available",
   "aboutApp": "About RAHI",
-  "version": "Version"
+  "version": "Version",
+  "navigation": "Navigation",
+  "exitNavigation": "Exit navigation",
+  "arrived": "You have arrived",
+  "nextTurn": "Next turn",
+  "remaining": "Remaining",
+  "eta": "ETA",
+  "voiceNotAvailable": "Voice guidance is not available on this device",
+  "voiceDisclosure": "Voice guidance is provided by your device TTS engine"
 }

@@ -43,5 +43,13 @@
   "comingSoon": "به‌زودی",
   "serviceNotAvailable": "این سرویس در دسترس نیست",
   "aboutApp": "درباره راهی",
-  "version": "نسخه"
+  "version": "نسخه",
+  "navigation": "ناوبری",
+  "exitNavigation": "پایان مسیریابی",
+  "arrived": "به مقصد رسیدید",
+  "nextTurn": "پیچ بعدی",
+  "remaining": "باقی‌مانده",
+  "eta": "زمان رسیدن",
+  "voiceNotAvailable": "راهنمای صوتی در این دستگاه فعال نیست",
+  "voiceDisclosure": "راهنمای صوتی توسط موتور TTS دستگاه شما خوانده می‌شود"
 }
