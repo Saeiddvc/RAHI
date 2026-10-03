@@ -55,6 +55,7 @@ jobs:
           cp android/app/src/main/res/values/strings.xml /tmp/rahi-android/strings.xml
           cp android/app/build.gradle.kts /tmp/rahi-android/build.gradle.kts
           cp android/app/proguard-rules.pro /tmp/rahi-android/proguard-rules.pro
+          cp android/gradle.properties /tmp/rahi-android/gradle.properties
 
           flutter create .             --platforms=android             --project-name=rahi             --org=ir.rahi
 
@@ -72,6 +73,7 @@ jobs:
           cp /tmp/rahi-android/strings.xml android/app/src/main/res/values/strings.xml
           cp /tmp/rahi-android/build.gradle.kts android/app/build.gradle.kts
           cp /tmp/rahi-android/proguard-rules.pro android/app/proguard-rules.pro
+          cp /tmp/rahi-android/gradle.properties android/gradle.properties
 
       - name: Resolve dependencies
         run: flutter pub get

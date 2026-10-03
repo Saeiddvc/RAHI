@@ -54,6 +54,9 @@ jobs:
           if [ -f android/app/proguard-rules.pro ]; then
             cp android/app/proguard-rules.pro /tmp/rahi-android/proguard-rules.pro
           fi
+          if [ -f android/gradle.properties ]; then
+            cp android/gradle.properties /tmp/rahi-android/gradle.properties
+          fi
 
           flutter create .             --platforms=android             --project-name=rahi             --org=ir.rahi
 
@@ -78,6 +81,9 @@ jobs:
           fi
           if [ -f /tmp/rahi-android/proguard-rules.pro ]; then
             cp /tmp/rahi-android/proguard-rules.pro android/app/proguard-rules.pro
+          fi
+          if [ -f /tmp/rahi-android/gradle.properties ]; then
+            cp /tmp/rahi-android/gradle.properties android/gradle.properties
           fi
 
       - name: Verify tracked compile-time secrets contract
