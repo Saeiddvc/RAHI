@@ -5,11 +5,19 @@ import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../data/models/map_route.dart';
+import '../../data/models/place.dart';
 import '../../l10n/app_localizations.dart';
 import '../../providers/location_provider.dart';
+import '../../providers/settings_provider.dart';
+import 'providers/routing_provider.dart';
+import 'providers/search_provider.dart';
 import 'widgets/locate_fab.dart';
 import 'widgets/rahi_map.dart';
+import 'widgets/route_info_card.dart';
+import 'widgets/route_options_sheet.dart';
 import 'widgets/search_bar.dart';
+import 'widgets/search_sheet.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -20,18 +28,27 @@ class MapScreen extends ConsumerStatefulWidget {
 
 class _MapScreenState extends ConsumerState<MapScreen> {
   final MapController _mapController = MapController();
+
+  LatLng _mapCenter = const LatLng(
+    AppConstants.defaultLat,
+    AppConstants.defaultLng,
+  );
   bool _locating = false;
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final userLocation = ref.watch(locationProvider);
+    final routing = ref.watch(routingProvider);
 
-    final center = userLocation ??
-        const LatLng(
-          AppConstants.defaultLat,
-          AppConstants.defaultLng,
-        );
+    final center = userLocation ?? _mapCenter;
+    final selectedRoute = routing.selectedRoute;
 
     return Scaffold(
       body: Stack(
@@ -39,6 +56,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           RahiMap(
             mapController: _mapController,
             center: center,
+            routes: routing.routes,
+            selectedRouteIndex: routing.selectedIndex,
+            destination: routing.destination?.location,
+            onCenterChanged: (newCenter) {
+              _mapCenter = newCenter;
+            },
           ),
           Positioned(
             top: MediaQuery.paddingOf(context).top + 12,
@@ -48,12 +71,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               children: [
                 Expanded(
                   child: RahiSearchBar(
-                    hint: l10n.searchPlaceholder,
-                    onTap: () => _showSearchSheet(context),
+                    hint: routing.destination?.title ??
+                        l10n.searchPlaceholder,
+                    onTap: _openSearchSheet,
                   ),
                 ),
                 const SizedBox(width: 8),
-                _IconButton(
+                _RoundIconButton(
                   icon: Icons.settings_outlined,
                   onTap: () => context.push('/settings'),
                   tooltip: l10n.settings,
@@ -61,14 +85,60 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ],
             ),
           ),
-          PositionedDirectional(
-            bottom: 24,
-            end: 16,
-            child: LocateFab(
-              isLoading: _locating,
-              onTap: _locateUser,
+          if (!routing.hasRoutes)
+            PositionedDirectional(
+              bottom: 24,
+              end: 16,
+              child: LocateFab(
+                isLoading: _locating,
+                onTap: _locateUser,
+              ),
             ),
-          ),
+          if (routing.routes.length > 1)
+            PositionedDirectional(
+              top: MediaQuery.paddingOf(context).top + 80,
+              end: 12,
+              child: _RoundIconButton(
+                icon: Icons.alt_route,
+                onTap: _openRouteOptionsSheet,
+                tooltip: l10n.routeType,
+              ),
+            ),
+          if (selectedRoute != null)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: RouteInfoCard(
+                route: selectedRoute,
+                onStart: () => _onStartNavigation(selectedRoute),
+                onCancel: () {
+                  ref.read(routingProvider.notifier).clear();
+                },
+              ),
+            ),
+          if (routing.isLoading)
+            Positioned.fill(
+              child: ColoredBox(
+                color: Colors.black26,
+                child: const Center(
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+            ),
+          if (routing.error != null && routing.routes.isEmpty)
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 80,
+              left: 12,
+              right: 12,
+              child: _ErrorCard(
+                message: routing.error!,
+                actionLabel: l10n.cancel,
+                onDismiss: () {
+                  ref.read(routingProvider.notifier).clear();
+                },
+              ),
+            ),
         ],
       ),
     );
@@ -84,7 +154,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     final location = ref.read(locationProvider);
     if (location != null) {
-      _mapController.move(location, AppConstants.defaultZoom);
+      _mapController.move(location, 15);
+      _mapCenter = location;
     } else {
       final l10n = AppLocalizations.of(context)!;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -97,38 +168,128 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
-  void _showSearchSheet(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
+  Future<void> _openSearchSheet() async {
+    ref.read(searchProvider.notifier).clear();
 
-    showModalBottomSheet<void>(
+    final searchCenter = ref.read(locationProvider) ?? _mapCenter;
+
+    final place = await showModalBottomSheet<Place>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
+      useSafeArea: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
-      builder: (context) {
-        return SafeArea(
-          top: false,
-          child: SizedBox(
-            height: MediaQuery.sizeOf(context).height * 0.5,
-            child: Center(
-              child: Text(
-                l10n.comingSoon,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-          ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(20),
+        ),
+      ),
+      builder: (sheetContext) {
+        return SearchSheet(
+          searchCenter: searchCenter,
+          onPlaceSelected: (selectedPlace) {
+            Navigator.of(sheetContext).pop(selectedPlace);
+          },
         );
       },
+    );
+
+    if (!mounted || place == null) return;
+    await _onDestinationSelected(place);
+  }
+
+  Future<void> _onDestinationSelected(Place place) async {
+    final userLocation = ref.read(locationProvider);
+
+    if (userLocation == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)!.noLocationAccess,
+          ),
+        ),
+      );
+      return;
+    }
+
+    final settings = ref.read(settingsProvider);
+
+    await ref.read(routingProvider.notifier).calculateRoute(
+          origin: userLocation,
+          destination: place,
+          type: settings.routeType,
+        );
+
+    if (!mounted) return;
+
+    final routing = ref.read(routingProvider);
+    final selectedRoute = routing.selectedRoute;
+
+    if (selectedRoute != null) {
+      _zoomToRoute(selectedRoute.points);
+    }
+  }
+
+  Future<void> _openRouteOptionsSheet() async {
+    final routing = ref.read(routingProvider);
+
+    final index = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(20),
+        ),
+      ),
+      builder: (sheetContext) {
+        return RouteOptionsSheet(
+          routes: routing.routes,
+          selectedIndex: routing.selectedIndex,
+          onSelected: (selectedIndex) {
+            Navigator.of(sheetContext).pop(selectedIndex);
+          },
+        );
+      },
+    );
+
+    if (!mounted || index == null) return;
+
+    ref.read(routingProvider.notifier).selectRoute(index);
+    final selectedRoute = ref.read(routingProvider).selectedRoute;
+
+    if (selectedRoute != null) {
+      _zoomToRoute(selectedRoute.points);
+    }
+  }
+
+  void _zoomToRoute(List<LatLng> points) {
+    if (points.isEmpty) return;
+
+    _mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: LatLngBounds.fromPoints(points),
+        padding: const EdgeInsets.fromLTRB(48, 120, 48, 220),
+        maxZoom: 17,
+      ),
+    );
+  }
+
+  void _onStartNavigation(MapRoute _) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          AppLocalizations.of(context)!.comingSoon,
+        ),
+      ),
     );
   }
 }
 
-class _IconButton extends StatelessWidget {
+class _RoundIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final String tooltip;
 
-  const _IconButton({
+  const _RoundIconButton({
     required this.icon,
     required this.onTap,
     required this.tooltip,
@@ -149,6 +310,52 @@ class _IconButton extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             child: Icon(icon),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorCard extends StatelessWidget {
+  final String message;
+  final String actionLabel;
+  final VoidCallback onDismiss;
+
+  const _ErrorCard({
+    required this.message,
+    required this.actionLabel,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsetsDirectional.fromSTEB(
+          16,
+          12,
+          8,
+          12,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.error_outline,
+              color: Theme.of(context).colorScheme.error,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            TextButton(
+              onPressed: onDismiss,
+              child: Text(actionLabel),
+            ),
+          ],
         ),
       ),
     );

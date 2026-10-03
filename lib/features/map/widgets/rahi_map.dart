@@ -4,21 +4,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../data/models/map_route.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/map_service_provider.dart';
 
 class RahiMap extends ConsumerWidget {
   final MapController mapController;
   final LatLng center;
-  final List<LatLng>? routePoints;
+  final List<MapRoute> routes;
+  final int selectedRouteIndex;
   final LatLng? destination;
+  final ValueChanged<LatLng>? onCenterChanged;
 
   const RahiMap({
     super.key,
     required this.mapController,
     required this.center,
-    this.routePoints,
+    this.routes = const [],
+    this.selectedRouteIndex = 0,
     this.destination,
+    this.onCenterChanged,
   });
 
   @override
@@ -37,6 +42,9 @@ class RahiMap extends ConsumerWidget {
         initialZoom: AppConstants.defaultZoom,
         minZoom: 4,
         maxZoom: 19,
+        onPositionChanged: (camera, _) {
+          onCenterChanged?.call(camera.center);
+        },
       ),
       children: [
         TileLayer(
@@ -45,15 +53,9 @@ class RahiMap extends ConsumerWidget {
           userAgentPackageName: AppConstants.userAgent,
           maxZoom: 19,
         ),
-        if (routePoints case final points? when points.isNotEmpty)
+        if (routes.isNotEmpty)
           PolylineLayer(
-            polylines: [
-              Polyline(
-                points: points,
-                strokeWidth: 6,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ],
+            polylines: _buildRoutePolylines(context),
           ),
         if (userLocation != null)
           MarkerLayer(
@@ -83,6 +85,44 @@ class RahiMap extends ConsumerWidget {
           ),
       ],
     );
+  }
+
+  List<Polyline> _buildRoutePolylines(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final alternate = Theme.of(context)
+        .colorScheme
+        .secondary
+        .withValues(alpha: 0.50);
+
+    final polylines = <Polyline>[];
+
+    for (var index = 0; index < routes.length; index++) {
+      if (index == selectedRouteIndex || routes[index].points.isEmpty) {
+        continue;
+      }
+
+      polylines.add(
+        Polyline(
+          points: routes[index].points,
+          strokeWidth: 4,
+          color: alternate,
+        ),
+      );
+    }
+
+    if (selectedRouteIndex >= 0 &&
+        selectedRouteIndex < routes.length &&
+        routes[selectedRouteIndex].points.isNotEmpty) {
+      polylines.add(
+        Polyline(
+          points: routes[selectedRouteIndex].points,
+          strokeWidth: 6,
+          color: primary,
+        ),
+      );
+    }
+
+    return polylines;
   }
 
   String _buildTileUrl(
