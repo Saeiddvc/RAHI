@@ -44,6 +44,14 @@ jobs:
           cp analysis_options.yaml /tmp/rahi-source/analysis_options.yaml
           if [ -f l10n.yaml ]; then cp l10n.yaml /tmp/rahi-source/l10n.yaml; fi
 
+          mkdir -p /tmp/rahi-android
+          if [ -f android/app/src/main/AndroidManifest.xml ]; then
+            cp android/app/src/main/AndroidManifest.xml /tmp/rahi-android/AndroidManifest.xml
+          fi
+          if [ -f android/app/src/main/res/values/strings.xml ]; then
+            cp android/app/src/main/res/values/strings.xml /tmp/rahi-android/strings.xml
+          fi
+
           flutter create .             --platforms=android             --project-name=rahi             --org=ir.rahi
 
           rm -rf lib test
@@ -54,6 +62,25 @@ jobs:
           if [ -f /tmp/rahi-source/l10n.yaml ]; then
             cp /tmp/rahi-source/l10n.yaml ./l10n.yaml
           fi
+
+          if [ -f /tmp/rahi-android/AndroidManifest.xml ]; then
+            cp /tmp/rahi-android/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          fi
+          if [ -f /tmp/rahi-android/strings.xml ]; then
+            mkdir -p android/app/src/main/res/values
+            cp /tmp/rahi-android/strings.xml android/app/src/main/res/values/strings.xml
+          fi
+
+      - name: Verify Android source manifest
+        shell: bash
+        run: |
+          grep -F 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml
+          grep -F 'android.permission.ACCESS_NETWORK_STATE' android/app/src/main/AndroidManifest.xml
+          grep -F 'android.permission.ACCESS_FINE_LOCATION' android/app/src/main/AndroidManifest.xml
+          grep -F 'android.permission.ACCESS_COARSE_LOCATION' android/app/src/main/AndroidManifest.xml
+          grep -F 'android:usesCleartextTraffic="false"' android/app/src/main/AndroidManifest.xml
+          grep -F 'android:supportsRtl="true"' android/app/src/main/AndroidManifest.xml
+          grep -F '<string name="app_name">راهی</string>' android/app/src/main/res/values/strings.xml
 
       - name: Resolve dependencies
         run: flutter pub get
@@ -80,6 +107,22 @@ jobs:
 
       - name: Build debug APK
         run: flutter build apk --debug
+
+      - name: Verify merged debug manifest
+        shell: bash
+        run: |
+          MERGED_MANIFEST="$(find build/app/intermediates -type f -path '*debug*' -name AndroidManifest.xml | head -n 1)"
+          if [ -z "$MERGED_MANIFEST" ]; then
+            echo "Merged debug AndroidManifest.xml not found"
+            exit 1
+          fi
+          echo "Verifying: $MERGED_MANIFEST"
+          grep -F 'android.permission.INTERNET' "$MERGED_MANIFEST"
+          grep -F 'android.permission.ACCESS_NETWORK_STATE' "$MERGED_MANIFEST"
+          grep -F 'android.permission.ACCESS_FINE_LOCATION' "$MERGED_MANIFEST"
+          grep -F 'android.permission.ACCESS_COARSE_LOCATION' "$MERGED_MANIFEST"
+          grep -F 'android:usesCleartextTraffic="false"' "$MERGED_MANIFEST"
+          grep -F 'android:supportsRtl="true"' "$MERGED_MANIFEST"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
