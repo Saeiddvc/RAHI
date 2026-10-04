@@ -1,0 +1,178 @@
+name: Test APK with Real Keys
+
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: 'Optional note for this Test B build'
+        required: false
+        default: 'Test B - Search/Route/Navigation'
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Generate Android scaffold
+        shell: bash
+        run: |
+          mkdir -p /tmp/rahi-source
+          cp -R lib /tmp/rahi-source/lib
+          cp -R test /tmp/rahi-source/test
+          cp pubspec.yaml /tmp/rahi-source/pubspec.yaml
+          cp analysis_options.yaml /tmp/rahi-source/analysis_options.yaml
+          if [ -f l10n.yaml ]; then cp l10n.yaml /tmp/rahi-source/l10n.yaml; fi
+
+          mkdir -p /tmp/rahi-android
+          cp android/app/src/main/AndroidManifest.xml /tmp/rahi-android/AndroidManifest.xml
+          cp android/app/src/main/res/values/strings.xml /tmp/rahi-android/strings.xml
+          cp android/app/build.gradle.kts /tmp/rahi-android/build.gradle.kts
+          cp android/app/proguard-rules.pro /tmp/rahi-android/proguard-rules.pro
+          cp android/gradle.properties /tmp/rahi-android/gradle.properties
+
+          flutter create . \
+            --platforms=android \
+            --project-name=rahi \
+            --org=ir.rahi
+
+          rm -rf lib test
+          cp -R /tmp/rahi-source/lib ./lib
+          cp -R /tmp/rahi-source/test ./test
+          cp /tmp/rahi-source/pubspec.yaml ./pubspec.yaml
+          cp /tmp/rahi-source/analysis_options.yaml ./analysis_options.yaml
+          if [ -f /tmp/rahi-source/l10n.yaml ]; then
+            cp /tmp/rahi-source/l10n.yaml ./l10n.yaml
+          fi
+
+          cp /tmp/rahi-android/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          mkdir -p android/app/src/main/res/values
+          cp /tmp/rahi-android/strings.xml android/app/src/main/res/values/strings.xml
+          cp /tmp/rahi-android/build.gradle.kts android/app/build.gradle.kts
+          cp /tmp/rahi-android/proguard-rules.pro android/app/proguard-rules.pro
+          cp /tmp/rahi-android/gradle.properties android/gradle.properties
+
+      - name: Validate required Test B secret
+        shell: bash
+        env:
+          NESHAN_API_KEY: ${{ secrets.NESHAN_API_KEY }}
+        run: |
+          if [ -z "$NESHAN_API_KEY" ]; then
+            echo "NESHAN_API_KEY is missing from GitHub Actions repository secrets."
+            exit 1
+          fi
+          echo "NESHAN_API_KEY is configured."
+
+      - name: Verify compile-time secrets contract
+        shell: bash
+        run: |
+          test -f lib/core/constants/secrets.dart
+          grep -F "String.fromEnvironment(" lib/core/constants/secrets.dart
+
+      - name: Verify Vazirmatn fonts
+        shell: bash
+        run: |
+          FONT_DIR="assets/fonts/Vazirmatn"
+          REQUIRED=(
+            "Vazirmatn-Regular.ttf"
+            "Vazirmatn-Medium.ttf"
+            "Vazirmatn-Bold.ttf"
+          )
+          for f in "${REQUIRED[@]}"; do
+            path="$FONT_DIR/$f"
+            test -f "$path" || { echo "Missing font: $path"; exit 1; }
+            size=$(wc -c < "$path")
+            [ "$size" -ge 50000 ] || { echo "Font is unexpectedly small: $path"; exit 1; }
+          done
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Generate branding source assets
+        run: |
+          python -m pip install --disable-pip-version-check Pillow
+          python tools/generate_icon.py
+
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+
+      - name: Generate native splash
+        run: dart run flutter_native_splash:create
+
+      - name: Generate localizations
+        run: flutter gen-l10n
+
+      - name: Static analysis
+        run: flutter analyze
+
+      - name: Unit tests
+        run: flutter test
+
+      - name: Build Test B debug APK with real keys
+        shell: bash
+        env:
+          NESHAN_API_KEY: ${{ secrets.NESHAN_API_KEY }}
+          PARSIMAP_SERVICE_TOKEN: ${{ secrets.PARSIMAP_SERVICE_TOKEN }}
+          PARSIMAP_MAP_TOKEN: ${{ secrets.PARSIMAP_MAP_TOKEN }}
+        run: |
+          flutter build apk --debug \
+            "--dart-define=NESHAN_API_KEY=$NESHAN_API_KEY" \
+            "--dart-define=PARSIMAP_SERVICE_TOKEN=$PARSIMAP_SERVICE_TOKEN" \
+            "--dart-define=PARSIMAP_MAP_TOKEN=$PARSIMAP_MAP_TOKEN"
+
+          test -f build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Prepare Test B artifact
+        shell: bash
+        run: |
+          mkdir -p build/test-b
+          cp build/app/outputs/flutter-apk/app-debug.apk \
+            build/test-b/RAHI-TestB-Debug.apk
+          sha256sum build/test-b/RAHI-TestB-Debug.apk \
+            | tee build/test-b/RAHI-TestB-Debug.apk.sha256
+
+      - name: Upload Test B APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: RAHI-TestB-${{ github.run_number }}
+          path: |
+            build/test-b/RAHI-TestB-Debug.apk
+            build/test-b/RAHI-TestB-Debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "### Test B APK ready"
+            echo ""
+            echo "- Run: #${{ github.run_number }}"
+            echo "- Branch: ${{ github.ref_name }}"
+            echo "- Note: ${{ github.event.inputs.note }}"
+            echo "- Neshan key: injected from GitHub Actions secret"
+            echo "- Parsimap tokens: optional"
+            echo "- Tag/Release: not created"
+          } >> "$GITHUB_STEP_SUMMARY"
