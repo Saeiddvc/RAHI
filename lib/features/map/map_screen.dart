@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -27,7 +28,8 @@ class MapScreen extends ConsumerStatefulWidget {
   ConsumerState<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends ConsumerState<MapScreen> {
+class _MapScreenState extends ConsumerState<MapScreen>
+    with WidgetsBindingObserver {
   final MapController _mapController = MapController();
 
   LatLng _mapCenter = const LatLng(
@@ -37,15 +39,30 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _locating = false;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _mapController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(locationProvider.notifier).onAppResumed();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final userLocation = ref.watch(locationProvider);
+    final accessStatus = ref.watch(locationAccessProvider);
     final routing = ref.watch(routingProvider);
 
     final center = userLocation ?? _mapCenter;
@@ -68,20 +85,41 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             top: MediaQuery.paddingOf(context).top + 12,
             left: 12,
             right: 12,
-            child: Row(
+            child: Column(
               children: [
-                Expanded(
-                  child: RahiSearchBar(
-                    hint: routing.destination?.title ??
-                        l10n.searchPlaceholder,
-                    onTap: _openSearchSheet,
+                if (accessStatus == LocationAccessStatus.deniedForever)
+                  _PermissionBanner(
+                    icon: Icons.location_off_rounded,
+                    message: l10n.locationPermissionPermanentlyDenied,
+                    actionLabel: l10n.openSettings,
+                    onAction: _openAppSettings,
                   ),
-                ),
-                const SizedBox(width: 8),
-                _RoundIconButton(
-                  icon: Icons.settings_outlined,
-                  onTap: () => context.push('/settings'),
-                  tooltip: l10n.settings,
+                if (accessStatus == LocationAccessStatus.serviceDisabled)
+                  _PermissionBanner(
+                    icon: Icons.location_disabled_rounded,
+                    message: l10n.locationServiceDisabled,
+                    actionLabel: l10n.openLocationSettings,
+                    onAction: _openLocationSettings,
+                  ),
+                if (accessStatus == LocationAccessStatus.deniedForever ||
+                    accessStatus == LocationAccessStatus.serviceDisabled)
+                  const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: RahiSearchBar(
+                        hint: routing.destination?.title ??
+                            l10n.searchPlaceholder,
+                        onTap: _openSearchSheet,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _RoundIconButton(
+                      icon: Icons.settings_outlined,
+                      onTap: () => context.push('/settings'),
+                      tooltip: l10n.settings,
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -158,15 +196,29 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       _mapController.move(location, 15);
       _mapCenter = location;
     } else {
-      final l10n = AppLocalizations.of(context)!;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.noLocationAccess)),
-      );
+      final accessStatus = ref.read(locationAccessProvider);
+      if (accessStatus != LocationAccessStatus.deniedForever &&
+          accessStatus != LocationAccessStatus.serviceDisabled) {
+        final l10n = AppLocalizations.of(context)!;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.noLocationAccess)),
+        );
+      }
     }
 
     if (mounted) {
       setState(() => _locating = false);
     }
+  }
+
+  Future<void> _openAppSettings() async {
+    ref.read(locationProvider.notifier).markWentToSettings();
+    await Geolocator.openAppSettings();
+  }
+
+  Future<void> _openLocationSettings() async {
+    ref.read(locationProvider.notifier).markWentToSettings();
+    await Geolocator.openLocationSettings();
   }
 
   Future<void> _openSearchSheet() async {
@@ -369,6 +421,78 @@ class _ErrorCard extends StatelessWidget {
             TextButton(
               onPressed: onDismiss,
               child: Text(actionLabel),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PermissionBanner extends StatelessWidget {
+  final IconData icon;
+  final String message;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  const _PermissionBanner({
+    required this.icon,
+    required this.message,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Material(
+      elevation: 4,
+      borderRadius: BorderRadius.circular(14),
+      color: scheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: scheme.onErrorContainer,
+              size: 24,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  color: scheme.onErrorContainer,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: onAction,
+              style: TextButton.styleFrom(
+                foregroundColor: scheme.onErrorContainer,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                minimumSize: const Size(0, 36),
+              ),
+              child: Text(
+                actionLabel,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
             ),
           ],
         ),

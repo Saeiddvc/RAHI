@@ -4,6 +4,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
+enum LocationAccessStatus {
+  unknown,
+  granted,
+  denied,
+  deniedForever,
+  serviceDisabled,
+}
+
+final locationAccessProvider = StateProvider<LocationAccessStatus>(
+  (ref) => LocationAccessStatus.unknown,
+);
+
 final locationErrorProvider = StateProvider<String?>((ref) => null);
 
 final locationProvider =
@@ -18,6 +30,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
 
   final Ref _ref;
   StreamSubscription<Position>? _positionSubscription;
+  bool _wentToSettings = false;
 
   static const LocationSettings _currentLocationSettings = LocationSettings(
     accuracy: LocationAccuracy.high,
@@ -31,33 +44,62 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   );
 
   Future<void> _init() async {
+    await _checkAndRequestPermission();
+  }
+
+  Future<void> _checkAndRequestPermission({
+    bool requestIfDenied = true,
+  }) async {
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        _setError('سرویس موقعیت مکانی خاموش است.');
+        _setStatus(
+          LocationAccessStatus.serviceDisabled,
+          error: 'سرویس موقعیت مکانی خاموش است.',
+        );
+        _positionSubscription?.cancel();
         state = null;
         return;
       }
 
       var permission = await Geolocator.checkPermission();
 
-      if (permission == LocationPermission.denied) {
+      if (permission == LocationPermission.denied && requestIfDenied) {
         permission = await Geolocator.requestPermission();
       }
 
-      if (permission == LocationPermission.denied) {
-        _setError('مجوز موقعیت مکانی داده نشد.');
-        state = null;
-        return;
-      }
-
       if (permission == LocationPermission.deniedForever) {
-        _setError('مجوز موقعیت مکانی برای برنامه مسدود شده است.');
+        _setStatus(
+          LocationAccessStatus.deniedForever,
+          error: 'مجوز موقعیت مکانی برای برنامه مسدود شده است.',
+        );
+        _positionSubscription?.cancel();
         state = null;
         return;
       }
 
-      _setError(null);
+      if (permission == LocationPermission.denied) {
+        _setStatus(
+          LocationAccessStatus.denied,
+          error: 'مجوز موقعیت مکانی داده نشد.',
+        );
+        _positionSubscription?.cancel();
+        state = null;
+        return;
+      }
+
+      if (permission != LocationPermission.whileInUse &&
+          permission != LocationPermission.always) {
+        _setStatus(
+          LocationAccessStatus.denied,
+          error: 'مجوز موقعیت مکانی داده نشد.',
+        );
+        _positionSubscription?.cancel();
+        state = null;
+        return;
+      }
+
+      _setStatus(LocationAccessStatus.granted);
       await _loadInitialPosition();
       _startLiveUpdates();
     } catch (_) {
@@ -73,14 +115,20 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       );
 
       state = LatLng(position.latitude, position.longitude);
+      _setError(null);
       return;
     } catch (_) {
-      final lastKnown = await Geolocator.getLastKnownPosition();
+      try {
+        final lastKnown = await Geolocator.getLastKnownPosition();
 
-      if (lastKnown != null) {
-        state = LatLng(lastKnown.latitude, lastKnown.longitude);
-        _setError(null);
-      } else {
+        if (lastKnown != null) {
+          state = LatLng(lastKnown.latitude, lastKnown.longitude);
+          _setError(null);
+        } else {
+          state = null;
+          _setError('موقعیت فعلی هنوز در دسترس نیست.');
+        }
+      } catch (_) {
         state = null;
         _setError('موقعیت فعلی هنوز در دسترس نیست.');
       }
@@ -94,7 +142,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     ).listen(
       (position) {
         state = LatLng(position.latitude, position.longitude);
-        _setError(null);
+        _setStatus(LocationAccessStatus.granted);
       },
       onError: (_) {
         _setError('جریان زنده موقعیت مکانی قطع شد.');
@@ -102,24 +150,27 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     );
   }
 
+  void markWentToSettings() {
+    _wentToSettings = true;
+  }
+
+  Future<void> onAppResumed() async {
+    if (!_wentToSettings) return;
+
+    _wentToSettings = false;
+    await _checkAndRequestPermission(requestIfDenied: false);
+  }
+
   Future<void> refresh() async {
-    try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        _setError('سرویس موقعیت مکانی خاموش است.');
-        state = null;
-        return;
-      }
+    await _checkAndRequestPermission();
+  }
 
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: _currentLocationSettings,
-      );
-
-      state = LatLng(position.latitude, position.longitude);
-      _setError(null);
-    } catch (_) {
-      _setError('به‌روزرسانی موقعیت مکانی انجام نشد.');
-    }
+  void _setStatus(
+    LocationAccessStatus status, {
+    String? error,
+  }) {
+    _ref.read(locationAccessProvider.notifier).state = status;
+    _setError(error);
   }
 
   void _setError(String? message) {
