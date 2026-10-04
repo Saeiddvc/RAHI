@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-    branches:
-      - 'v1-commit-16-font'
   workflow_dispatch:
     inputs:
       smoke_test:
