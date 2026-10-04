@@ -105,6 +105,30 @@ jobs:
           grep -F 'android:supportsRtl="true"' android/app/src/main/AndroidManifest.xml
           grep -F '<string name="app_name">راهی</string>' android/app/src/main/res/values/strings.xml
 
+      - name: Verify Vazirmatn fonts
+        shell: bash
+        run: |
+          FONT_DIR="assets/fonts/Vazirmatn"
+          REQUIRED=(
+            "Vazirmatn-Regular.ttf"
+            "Vazirmatn-Medium.ttf"
+            "Vazirmatn-Bold.ttf"
+          )
+          for f in "${REQUIRED[@]}"; do
+            path="$FONT_DIR/$f"
+            if [ ! -f "$path" ]; then
+              echo "Missing font: $path"
+              echo "Run: bash tools/download_fonts.sh"
+              exit 1
+            fi
+            size=$(wc -c < "$path")
+            if [ "$size" -lt 50000 ]; then
+              echo "Font is unexpectedly small: $path ($size bytes)"
+              exit 1
+            fi
+            echo "OK: $path ($size bytes)"
+          done
+
       - name: Resolve dependencies
         run: flutter pub get
 

@@ -18,6 +18,29 @@
 
 Keystore و رمزها باید در محل امن و دارای backup نگهداری شوند.
 
+## ۲.۵. آماده‌سازی فونت Vazirmatn
+
+RAHI نسخه ثابت **Vazirmatn v33.003** را با سه weight زیر داخل Git نگه می‌دارد:
+
+- `Vazirmatn-Regular.ttf` — 400
+- `Vazirmatn-Medium.ttf` — 500
+- `Vazirmatn-Bold.ttf` — 700
+
+در clone عادی نیازی به دانلود مجدد نیست. اگر فایل‌ها حذف یا خراب شدند:
+
+    bash tools/download_fonts.sh
+
+اسکریپت ابتدا فایل‌ها را از tag رسمی `v33.003` دانلود می‌کند و در صورت شکست، از ZIP رسمی همان Release استفاده می‌کند.
+
+تأیید:
+
+    ls -lh assets/fonts/Vazirmatn/
+
+CI نیز وجود و حداقل اندازه هر سه فایل را قبل از `flutter pub get` کنترل می‌کند.
+
+مجوز فونت SIL Open Font License 1.1 است و متن کامل آن در
+`assets/fonts/Vazirmatn/OFL.txt` نگهداری می‌شود.
+
 ## ۳. تست محلی Release
 
 1. فایل keystore را در android/app قرار دهید.
