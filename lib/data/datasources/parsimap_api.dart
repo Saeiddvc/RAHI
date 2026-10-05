@@ -40,38 +40,38 @@ class ParsimapApi implements MapService {
 
     try {
       final response = await _dio.get(
-        '/geocode/search',
+        '/geocode/forward',
         queryParameters: {
           'key': Secrets.parsimapServiceToken,
-          'address': normalizedTerm,
-          'location': '${center.longitude},${center.latitude}',
+          'search_text': normalizedTerm,
+          'district': '${center.longitude},${center.latitude}',
         },
       );
 
       final data = _asMap(response.data);
-      final rawItems = data['results'] ?? data['items'];
+      final rawItems = data['results'];
       if (rawItems is! List) return const [];
 
       final places = <Place>[];
       for (final raw in rawItems.whereType<Map>()) {
         final item = Map<String, dynamic>.from(raw);
-        final geometry = _asMap(item['geometry']);
-        final rawLocation = item['location'] ?? geometry['location'];
-        final location = _asMap(rawLocation);
+        final geoLocation = _asMap(item['geo_location']);
+        final location = _asMap(geoLocation['center']);
 
-        final longitude = (location['x'] as num?)?.toDouble() ??
-            (location['lng'] as num?)?.toDouble();
-        final latitude = (location['y'] as num?)?.toDouble() ??
-            (location['lat'] as num?)?.toDouble();
+        final longitude = (location['lng'] as num?)?.toDouble();
+        final latitude = (location['lat'] as num?)?.toDouble();
 
         if (latitude == null || longitude == null) continue;
 
         places.add(
           Place(
-            title: item['title']?.toString() ??
+            title: geoLocation['title']?.toString() ??
+                item['title']?.toString() ??
+                item['description']?.toString() ??
+                '',
+            address: item['description']?.toString() ??
                 item['address']?.toString() ??
                 '',
-            address: item['address']?.toString() ?? '',
             location: LatLng(latitude, longitude),
           ),
         );
@@ -93,6 +93,11 @@ class ParsimapApi implements MapService {
         queryParameters: {
           'key': Secrets.parsimapServiceToken,
           'location': '${point.longitude},${point.latitude}',
+          'local_address': false,
+          'approx_address': false,
+          'subdivision': false,
+          'plate': false,
+          'request_id': false,
         },
       );
 

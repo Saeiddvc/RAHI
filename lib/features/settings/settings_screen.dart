@@ -117,10 +117,11 @@ class SettingsScreen extends ConsumerWidget {
             child: Column(
               children: [
                 _ChoiceTile(
-                  title: l10n.neshan,
-                  selected: providerKind == MapProviderKind.neshan,
+                  title: l10n.providerHybrid,
+                  subtitle: l10n.providerHybridDesc,
+                  selected: providerKind == MapProviderKind.hybrid,
                   onTap: () {
-                    providerNotifier.state = MapProviderKind.neshan;
+                    providerNotifier.state = MapProviderKind.hybrid;
                     if (!_neshanSupportedRouteTypes.contains(
                       settings.routeType,
                     )) {
@@ -130,10 +131,24 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 _ChoiceTile(
                   title: l10n.parsimap,
-                  subtitle: l10n.comingSoon,
+                  subtitle: l10n.providerParsimapDesc,
                   selected: providerKind == MapProviderKind.parsimap,
-                  enabled: false,
-                  onTap: () {},
+                  onTap: () {
+                    providerNotifier.state = MapProviderKind.parsimap;
+                  },
+                ),
+                _ChoiceTile(
+                  title: l10n.neshan,
+                  subtitle: l10n.providerNeshanDesc,
+                  selected: providerKind == MapProviderKind.neshan,
+                  onTap: () {
+                    providerNotifier.state = MapProviderKind.neshan;
+                    if (!_neshanSupportedRouteTypes.contains(
+                      settings.routeType,
+                    )) {
+                      settingsNotifier.setRouteType(RouteType.car);
+                    }
+                  },
                 ),
               ],
             ),
