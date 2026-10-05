@@ -1,0 +1,164 @@
+name: Parsimap Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: 'Optional note for Parsimap smoke'
+        required: false
+        default: 'Parsimap Search + Reverse + Tile; Neshan Routing control'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      PARSIMAP_SERVICE_TOKEN: ${{ secrets.PARSIMAP_SERVICE_TOKEN }}
+      PARSIMAP_MAP_TOKEN: ${{ secrets.PARSIMAP_MAP_TOKEN }}
+      NESHAN_API_KEY: ${{ secrets.NESHAN_API_KEY }}
+
+    steps:
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PARSIMAP_SERVICE_TOKEN" || { echo "PARSIMAP_SERVICE_TOKEN is missing"; exit 1; }
+          test -n "$PARSIMAP_MAP_TOKEN" || { echo "PARSIMAP_MAP_TOKEN is missing"; exit 1; }
+          test -n "$NESHAN_API_KEY" || { echo "NESHAN_API_KEY is missing"; exit 1; }
+          echo "Required secrets are configured."
+
+      - name: Parsimap forward geocode smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl --silent --show-error --get             --output /tmp/parsimap-search.json             --write-out '%{http_code}'             --data-urlencode "district=51.3890,35.6892"             --data-urlencode "search_text=میدان آزادی تهران"             --data-urlencode "key=$PARSIMAP_SERVICE_TOKEN"             "https://api.parsimap.ir/geocode/forward")
+
+          echo "Parsimap Search HTTP: $code"
+          [[ "$code" =~ ^2[0-9][0-9]$ ]] || exit 1
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('/tmp/parsimap-search.json').read_text())
+          status = data.get('status') if isinstance(data, dict) else None
+          results = data.get('results') if isinstance(data, dict) else None
+
+          if status != 'OK':
+              raise SystemExit(f'Parsimap Search status is not OK: {status!r}')
+          if not isinstance(results, list) or not results:
+              raise SystemExit('Parsimap Search returned no results')
+
+          print(f'Parsimap Search PASS: {len(results)} result(s)')
+          PY
+
+      - name: Parsimap reverse geocode smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl --silent --show-error --get             --output /tmp/parsimap-reverse.json             --write-out '%{http_code}'             --data-urlencode "key=$PARSIMAP_SERVICE_TOKEN"             --data-urlencode "location=51.3890,35.6892"             --data-urlencode "local_address=false"             --data-urlencode "approx_address=false"             --data-urlencode "subdivision=false"             --data-urlencode "plate=false"             --data-urlencode "request_id=false"             "https://api.parsimap.ir/geocode/reverse")
+
+          echo "Parsimap Reverse HTTP: $code"
+          [[ "$code" =~ ^2[0-9][0-9]$ ]] || exit 1
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('/tmp/parsimap-reverse.json').read_text())
+          if data in ({}, [], None, ''):
+              raise SystemExit('Parsimap Reverse returned an empty response')
+
+          if isinstance(data, dict):
+              status = data.get('status')
+              if status in {'UNAUTHORIZED', 'EXPIRED'}:
+                  raise SystemExit(f'Parsimap Reverse auth status: {status}')
+
+          print('Parsimap Reverse PASS: non-empty JSON response')
+          PY
+
+      - name: Parsimap raster tile smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          style_code=$(curl --silent --show-error --get             --output /tmp/parsimap-style.json             --write-out '%{http_code}'             --data-urlencode "key=$PARSIMAP_MAP_TOKEN"             "https://api.parsimap.ir/styles/parsimap-streets-v11-raster")
+
+          echo "Parsimap Raster Style HTTP: $style_code"
+          [[ "$style_code" =~ ^2[0-9][0-9]$ ]] || exit 1
+
+          python3 - <<'PY'
+          import json
+          import math
+          import urllib.request
+          from pathlib import Path
+
+          data = json.loads(Path('/tmp/parsimap-style.json').read_text())
+          sources = data.get('sources', {}) if isinstance(data, dict) else {}
+          composite = sources.get('composite', {}) if isinstance(sources, dict) else {}
+          tiles = composite.get('tiles', []) if isinstance(composite, dict) else []
+          if not tiles or not isinstance(tiles[0], str):
+              raise SystemExit('Parsimap raster style has no composite tile template')
+
+          template = tiles[0]
+          z = 12
+          lat = 35.6892
+          lon = 51.3890
+          n = 2 ** z
+          x = int((lon + 180.0) / 360.0 * n)
+          lat_rad = math.radians(lat)
+          y = int((1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n)
+
+          tile_url = template.replace('{z}', str(z)).replace('{x}', str(x)).replace('{y}', str(y))
+          req = urllib.request.Request(tile_url, headers={'User-Agent': 'RAHI-Parsimap-Smoke/1.0'})
+          with urllib.request.urlopen(req, timeout=20) as resp:
+              body = resp.read()
+              status = getattr(resp, 'status', None)
+              content_type = resp.headers.get('Content-Type', '')
+
+          if status is not None and not (200 <= status < 300):
+              raise SystemExit(f'Parsimap tile HTTP status: {status}')
+          if len(body) < 1000:
+              raise SystemExit(f'Parsimap tile body unexpectedly small: {len(body)} bytes')
+
+          print(f'Parsimap Tile PASS: {len(body)} bytes; content-type={content_type or "unknown"}')
+          PY
+
+      - name: Neshan routing control smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl --silent --show-error --get             --output /tmp/neshan-route.json             --write-out '%{http_code}'             --header "Api-Key: $NESHAN_API_KEY"             --data-urlencode "type=car"             --data-urlencode "origin=35.6892,51.3890"             --data-urlencode "destination=35.6997,51.3379"             --data-urlencode "alternative=false"             --data-urlencode "avoidTrafficZone=false"             --data-urlencode "avoidOddEvenZone=false"             "https://api.neshan.org/v4/direction")
+
+          echo "Neshan Routing HTTP: $code"
+          [[ "$code" =~ ^2[0-9][0-9]$ ]] || exit 1
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('/tmp/neshan-route.json').read_text())
+          routes = data.get('routes') if isinstance(data, dict) else None
+          if not isinstance(routes, list) or not routes:
+              raise SystemExit('Neshan Routing returned no routes')
+          print(f'Neshan Routing PASS: {len(routes)} route(s)')
+          PY
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Parsimap Smoke"
+            echo ""
+            echo "- Run: #${{ github.run_number }}"
+            echo "- Note: ${{ github.event.inputs.note }}"
+            echo "- Scope: Parsimap Search + Reverse + Raster Tile"
+            echo "- Control: Neshan Routing"
+            echo "- App code changed: no"
+            echo "- Commit 19 opened: no"
+          } >> "$GITHUB_STEP_SUMMARY"
