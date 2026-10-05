@@ -6,7 +6,7 @@ class AppConstants {
   static const String tagline = 'Smart Navigation';
 
   static const String neshanBaseUrl = 'https://api.neshan.org';
-  static const String neshanSearchPath = '/v3/search';
+  static const String neshanSearchPath = '/v1/search';
   static const String neshanReversePath = '/v5/reverse';
   static const String neshanDirectionPath = '/v4/direction';
   static const String neshanTileUrl =

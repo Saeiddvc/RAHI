@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -45,17 +43,13 @@ class NeshanApi implements MapService {
     if (normalizedTerm.isEmpty) return const [];
 
     try {
-      final query = jsonEncode({
-        'term': normalizedTerm,
-        'center': {
-          'latitude': center.latitude,
-          'longitude': center.longitude,
-        },
-      });
-
       final response = await _dio.get(
         AppConstants.neshanSearchPath,
-        queryParameters: {'q': query},
+        queryParameters: {
+          'term': normalizedTerm,
+          'lat': center.latitude,
+          'lng': center.longitude,
+        },
       );
 
       final data = _asMap(response.data);
