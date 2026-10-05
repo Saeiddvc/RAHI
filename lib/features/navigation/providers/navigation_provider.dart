@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/services/voice_service.dart';
+import '../../../data/models/location_fix.dart';
 import '../../../data/models/map_route.dart';
 import '../../../data/models/place.dart';
 import '../../../data/models/route_step.dart';
@@ -166,6 +167,16 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
     _preAnnouncedStepIndex = -1;
     _arrivalAnnounced = false;
     _rerouteOfferedForCurrentOffRoute = false;
+  }
+
+  Future<void> updateUserLocationFromFix(LocationFix fix) async {
+    if (!fix.isGps ||
+        !fix.isFresh() ||
+        !fix.isAccurate()) {
+      return;
+    }
+
+    await updateUserLocation(fix.location);
   }
 
   Future<void> updateUserLocation(LatLng userLocation) async {

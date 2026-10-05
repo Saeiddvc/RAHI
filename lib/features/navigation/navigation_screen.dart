@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/formatters.dart';
+import '../../data/models/location_fix.dart';
 import '../../data/models/route_step.dart';
 import '../../l10n/app_localizations.dart';
 import '../../providers/location_provider.dart';
@@ -41,18 +42,22 @@ class _NavigationScreenState
     final userLocation = ref.watch(locationProvider);
     final route = navigation.route;
 
-    ref.listen<LatLng?>(locationProvider, (previous, next) {
+    ref.listen<LocationFix?>(locationFixProvider, (previous, next) {
       if (next == null) return;
 
       unawaited(
-        ref.read(navigationProvider.notifier).updateUserLocation(next),
+        ref
+            .read(navigationProvider.notifier)
+            .updateUserLocationFromFix(next),
       );
+
+      if (!next.isGps) return;
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
 
         try {
-          _mapController.move(next, 16);
+          _mapController.move(next.location, 16);
         } catch (_) {
           // The map controller may not yet be attached on the first frame.
         }
@@ -198,9 +203,11 @@ class _NavigationScreenState
 
     _rerouteDialogOpen = true;
     final l10n = AppLocalizations.of(context)!;
-    final userLocation = ref.read(locationProvider);
+    final locationNotifier = ref.read(locationProvider.notifier);
+    final fix = ref.read(locationFixProvider);
 
-    if (userLocation == null) {
+    // Reroute is never calculated from stale/last-known data.
+    if (!locationNotifier.isFixUsableForRoute(fix)) {
       ref.read(navigationProvider.notifier).dismissReroute();
       _rerouteDialogOpen = false;
       return;
@@ -237,7 +244,7 @@ class _NavigationScreenState
     if (confirmed == true) {
       await ref
           .read(navigationProvider.notifier)
-          .acceptReroute(userLocation);
+          .acceptReroute(fix!.location);
     } else {
       ref.read(navigationProvider.notifier).dismissReroute();
     }

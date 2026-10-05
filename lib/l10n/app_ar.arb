@@ -67,5 +67,21 @@
   "offRouteTitle": "خارج المسار",
   "offRouteMessage": "يبدو أنك خرجت عن المسار المقترح. هل تريد حساب مسار جديد؟",
   "offRouteDismiss": "لا، سأعود بنفسي",
-  "offRouteReroute": "نعم، مسار جديد"
+  "offRouteReroute": "نعم، مسار جديد",
+  "staleLocationTitle": "الموقع الدقيق غير متوفر",
+  "staleLocationMessage": "تم تسجيل آخر موقع لك قبل {age} (دقة حوالي {accuracy} متر). قد تختلف نقطة البداية عن موقعك الحالي. هل تريد المتابعة؟",
+  "staleLocationProceed": "نعم، تابع",
+  "secondsAgo": "ثانية",
+  "minutesAgo": "دقيقة",
+  "hoursAgo": "ساعة",
+  "@staleLocationMessage": {
+    "placeholders": {
+      "age": {
+        "type": "String"
+      },
+      "accuracy": {
+        "type": "int"
+      }
+    }
+  }
 }

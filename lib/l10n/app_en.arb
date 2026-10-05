@@ -67,5 +67,21 @@
   "offRouteTitle": "Off route",
   "offRouteMessage": "You seem to have left the suggested route. Calculate a new route?",
   "offRouteDismiss": "No, I'll return",
-  "offRouteReroute": "Yes, reroute"
+  "offRouteReroute": "Yes, reroute",
+  "staleLocationTitle": "Accurate location unavailable",
+  "staleLocationMessage": "Your last known location was recorded {age} ago (accuracy about {accuracy} m). The route start may differ from your current position. Continue?",
+  "staleLocationProceed": "Yes, continue",
+  "secondsAgo": "seconds",
+  "minutesAgo": "minutes",
+  "hoursAgo": "hours",
+  "@staleLocationMessage": {
+    "placeholders": {
+      "age": {
+        "type": "String"
+      },
+      "accuracy": {
+        "type": "int"
+      }
+    }
+  }
 }

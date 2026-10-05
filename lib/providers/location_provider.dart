@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../data/models/location_fix.dart';
+
 enum LocationAccessStatus {
   unknown,
   granted,
@@ -18,6 +20,17 @@ final locationAccessProvider = StateProvider<LocationAccessStatus>(
 
 final locationErrorProvider = StateProvider<String?>((ref) => null);
 
+/// Metadata-rich fix used for routing quality decisions.
+///
+/// This is intentionally separate from [locationProvider] so existing callers
+/// can keep using the LatLng provider and its notifier API.
+final locationFixProvider = StateProvider<LocationFix?>((ref) => null);
+
+/// Backward-compatible current-position provider.
+///
+/// Only a GPS fix is exposed as the current position. A last-known fallback is
+/// kept in [locationFixProvider] for an explicit user-confirmed routing choice,
+/// but is not shown as the live/current position.
 final locationProvider =
     StateNotifierProvider<LocationNotifier, LatLng?>((ref) {
   return LocationNotifier(ref);
@@ -32,6 +45,9 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   StreamSubscription<Position>? _positionSubscription;
   bool _wentToSettings = false;
 
+  static const Duration routeFreshMaxAge = Duration(seconds: 30);
+  static const double routeMaxAccuracyMeters = 150;
+
   static const LocationSettings _currentLocationSettings = LocationSettings(
     accuracy: LocationAccuracy.high,
     distanceFilter: 0,
@@ -42,6 +58,17 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     accuracy: LocationAccuracy.bestForNavigation,
     distanceFilter: 10,
   );
+
+  LocationFix? get currentFix => _ref.read(locationFixProvider);
+
+  bool isFixUsableForRoute([LocationFix? candidate]) {
+    final fix = candidate ?? currentFix;
+    if (fix == null) return false;
+    if (!fix.isGps) return false;
+    if (!fix.isFresh(maxAge: routeFreshMaxAge)) return false;
+    if (!fix.isAccurate(maxMeters: routeMaxAccuracyMeters)) return false;
+    return true;
+  }
 
   Future<void> _init() async {
     await _checkAndRequestPermission();
@@ -58,7 +85,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
           error: 'سرویس موقعیت مکانی خاموش است.',
         );
         _positionSubscription?.cancel();
-        state = null;
+        _clearFix();
         return;
       }
 
@@ -74,7 +101,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
           error: 'مجوز موقعیت مکانی برای برنامه مسدود شده است.',
         );
         _positionSubscription?.cancel();
-        state = null;
+        _clearFix();
         return;
       }
 
@@ -84,7 +111,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
           error: 'مجوز موقعیت مکانی داده نشد.',
         );
         _positionSubscription?.cancel();
-        state = null;
+        _clearFix();
         return;
       }
 
@@ -95,7 +122,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
           error: 'مجوز موقعیت مکانی داده نشد.',
         );
         _positionSubscription?.cancel();
-        state = null;
+        _clearFix();
         return;
       }
 
@@ -104,7 +131,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       _startLiveUpdates();
     } catch (_) {
       _setError('دریافت موقعیت مکانی با خطا مواجه شد.');
-      state = null;
+      _clearFix();
     }
   }
 
@@ -114,7 +141,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
         locationSettings: _currentLocationSettings,
       );
 
-      state = LatLng(position.latitude, position.longitude);
+      _setFix(position, LocationSource.gps);
       _setError(null);
       return;
     } catch (_) {
@@ -122,14 +149,14 @@ class LocationNotifier extends StateNotifier<LatLng?> {
         final lastKnown = await Geolocator.getLastKnownPosition();
 
         if (lastKnown != null) {
-          state = LatLng(lastKnown.latitude, lastKnown.longitude);
-          _setError(null);
+          _setFix(lastKnown, LocationSource.lastKnown);
+          _setError('موقعیت فعلی هنوز در دسترس نیست؛ آخرین موقعیت ذخیره‌شده موجود است.');
         } else {
-          state = null;
+          _clearFix();
           _setError('موقعیت فعلی هنوز در دسترس نیست.');
         }
       } catch (_) {
-        state = null;
+        _clearFix();
         _setError('موقعیت فعلی هنوز در دسترس نیست.');
       }
     }
@@ -141,13 +168,32 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       locationSettings: _streamLocationSettings,
     ).listen(
       (position) {
-        state = LatLng(position.latitude, position.longitude);
+        _setFix(position, LocationSource.gps);
         _setStatus(LocationAccessStatus.granted);
       },
       onError: (_) {
         _setError('جریان زنده موقعیت مکانی قطع شد.');
       },
     );
+  }
+
+  void _setFix(Position position, LocationSource source) {
+    final fix = LocationFix(
+      location: LatLng(position.latitude, position.longitude),
+      timestamp: position.timestamp.toUtc(),
+      accuracyMeters: position.accuracy,
+      source: source,
+    );
+
+    _ref.read(locationFixProvider.notifier).state = fix;
+
+    // Do not expose last-known data as the user's live/current location.
+    state = source == LocationSource.gps ? fix.location : null;
+  }
+
+  void _clearFix() {
+    _ref.read(locationFixProvider.notifier).state = null;
+    state = null;
   }
 
   void markWentToSettings() {

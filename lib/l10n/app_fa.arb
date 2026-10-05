@@ -67,5 +67,21 @@
   "offRouteTitle": "خارج از مسیر",
   "offRouteMessage": "به نظر می‌رسد از مسیر پیشنهادی خارج شده‌اید. آیا مسیر جدید محاسبه شود؟",
   "offRouteDismiss": "نه، خودم برمی‌گردم",
-  "offRouteReroute": "بله، مسیر جدید"
+  "offRouteReroute": "بله، مسیر جدید",
+  "staleLocationTitle": "موقعیت دقیق در دسترس نیست",
+  "staleLocationMessage": "آخرین موقعیت شما {age} پیش ثبت شده است (دقت حدود {accuracy} متر). ممکن است مبدأ مسیر با موقعیت فعلی شما فرق داشته باشد. ادامه می‌دهید؟",
+  "staleLocationProceed": "بله، ادامه بده",
+  "secondsAgo": "ثانیه",
+  "minutesAgo": "دقیقه",
+  "hoursAgo": "ساعت",
+  "@staleLocationMessage": {
+    "placeholders": {
+      "age": {
+        "type": "String"
+      },
+      "accuracy": {
+        "type": "int"
+      }
+    }
+  }
 }

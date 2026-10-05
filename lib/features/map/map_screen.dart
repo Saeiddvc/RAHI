@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../data/models/location_fix.dart';
 import '../../data/models/map_route.dart';
 import '../../data/models/place.dart';
 import '../../l10n/app_localizations.dart';
@@ -251,23 +252,31 @@ class _MapScreenState extends ConsumerState<MapScreen>
   }
 
   Future<void> _onDestinationSelected(Place place) async {
-    final userLocation = ref.read(locationProvider);
+    final locationNotifier = ref.read(locationProvider.notifier);
+    var fix = ref.read(locationFixProvider);
 
-    if (userLocation == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            AppLocalizations.of(context)!.noLocationAccess,
-          ),
-        ),
-      );
+    // Give GPS one explicit chance to replace a stale/last-known fix before
+    // asking the user whether to continue.
+    if (!locationNotifier.isFixUsableForRoute(fix)) {
+      await locationNotifier.refresh();
+      if (!mounted) return;
+      fix = ref.read(locationFixProvider);
+    }
+
+    if (fix == null) {
+      _showSnack(AppLocalizations.of(context)!.noLocationAccess);
       return;
+    }
+
+    if (!locationNotifier.isFixUsableForRoute(fix)) {
+      final proceed = await _confirmStaleLocation(fix);
+      if (!mounted || proceed != true) return;
     }
 
     final settings = ref.read(settingsProvider);
 
     await ref.read(routingProvider.notifier).calculateRoute(
-          origin: userLocation,
+          origin: fix.location,
           destination: place,
           type: settings.routeType,
         );
@@ -280,6 +289,60 @@ class _MapScreenState extends ConsumerState<MapScreen>
     if (selectedRoute != null) {
       _zoomToRoute(selectedRoute.points);
     }
+  }
+
+  Future<bool?> _confirmStaleLocation(LocationFix fix) {
+    final l10n = AppLocalizations.of(context)!;
+    final ageText = _formatLocationAge(fix.ageSeconds, l10n);
+
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          icon: const Icon(Icons.location_searching, size: 32),
+          title: Text(l10n.staleLocationTitle),
+          content: Text(
+            l10n.staleLocationMessage(
+              ageText,
+              fix.accuracyMeters.round(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(l10n.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(l10n.staleLocationProceed),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _formatLocationAge(
+    int seconds,
+    AppLocalizations l10n,
+  ) {
+    if (seconds < 60) {
+      return '$seconds ${l10n.secondsAgo}';
+    }
+
+    final minutes = seconds ~/ 60;
+    if (minutes < 60) {
+      return '$minutes ${l10n.minutesAgo}';
+    }
+
+    final hours = minutes ~/ 60;
+    return '$hours ${l10n.hoursAgo}';
+  }
+
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   Future<void> _openRouteOptionsSheet() async {
@@ -339,11 +402,15 @@ class _MapScreenState extends ConsumerState<MapScreen>
     }
 
     final routing = ref.read(routingProvider);
+    final locationNotifier = ref.read(locationProvider.notifier);
+    final fix = ref.read(locationFixProvider);
+    final initialLocation =
+        locationNotifier.isFixUsableForRoute(fix) ? fix!.location : null;
 
     await ref.read(navigationProvider.notifier).start(
           route,
           destination: routing.destination,
-          initialLocation: ref.read(locationProvider),
+          initialLocation: initialLocation,
         );
 
     if (!mounted) return;
