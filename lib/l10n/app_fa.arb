@@ -83,5 +83,10 @@
         "type": "int"
       }
     }
-  }
+  },
+  "searchServiceUnavailable": "سرویس جستجو در دسترس نیست",
+  "searchConnectionHint": "اتصال به سرویس برقرار نشد. اتصال اینترنت را بررسی و دوباره تلاش کنید",
+  "providerDegraded": "اتصال کند",
+  "providerDown": "سرویس در دسترس نیست",
+  "checkingConnection": "در حال بررسی اتصال..."
 }

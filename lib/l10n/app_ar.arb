@@ -83,5 +83,10 @@
         "type": "int"
       }
     }
-  }
+  },
+  "searchServiceUnavailable": "خدمة البحث غير متوفرة",
+  "searchConnectionHint": "تعذر الاتصال بالخدمة. تحقق من اتصال الإنترنت ثم أعد المحاولة",
+  "providerDegraded": "اتصال بطيء",
+  "providerDown": "الخدمة غير متوفرة",
+  "checkingConnection": "جارٍ التحقق من الاتصال..."
 }

@@ -5,23 +5,34 @@ import '../../core/constants/app_constants.dart';
 import '../../core/constants/secrets.dart';
 import '../../core/services/map_service.dart';
 import '../../core/services/parsimap_tile_resolver.dart';
+import '../../core/services/provider_health.dart';
+import '../../core/utils/api_call.dart';
 import '../models/map_route.dart';
 import '../models/place.dart';
 
 class ParsimapApi implements MapService {
   final Dio _dio;
   final ParsimapTileResolver _tileResolver;
+  final ProviderHealthNotifier? _health;
 
   ParsimapApi([Dio? dio, ParsimapTileResolver? tileResolver])
-      : _dio = dio ??
+      : this.withHealth(dio: dio, tileResolver: tileResolver);
+
+  ParsimapApi.withHealth({
+    Dio? dio,
+    ParsimapTileResolver? tileResolver,
+    ProviderHealthNotifier? health,
+  })  : _dio = dio ??
             Dio(
               BaseOptions(
                 baseUrl: AppConstants.parsimapBaseUrl,
-                connectTimeout: const Duration(seconds: 10),
-                receiveTimeout: const Duration(seconds: 15),
+                connectTimeout: ApiCall.defaultTimeout,
+                sendTimeout: ApiCall.defaultTimeout,
+                receiveTimeout: ApiCall.defaultTimeout,
               ),
             ),
-        _tileResolver = tileResolver ?? ParsimapTileResolver();
+        _tileResolver = tileResolver ?? ParsimapTileResolver(),
+        _health = health;
 
   @override
   String get displayName => 'پارسی‌مپ (Parsimap)';
@@ -42,14 +53,18 @@ class ParsimapApi implements MapService {
     if (normalizedTerm.isEmpty) return const [];
 
     try {
-      final response = await _dio.get(
-        '/geocode/forward',
-        queryParameters: {
-          'key': Secrets.parsimapServiceToken,
-          'search_text': normalizedTerm,
-          'district': '${center.longitude},${center.latitude}',
-        },
+      final response = await ApiCall.withResilience<Response<dynamic>>(
+        call: () => _dio.get(
+          '/geocode/forward',
+          queryParameters: {
+            'key': Secrets.parsimapServiceToken,
+            'search_text': normalizedTerm,
+            'district': '${center.longitude},${center.latitude}',
+          },
+        ),
       );
+
+      _health?.recordSuccess(parsimap: true);
 
       final data = _asMap(response.data);
       final rawItems = data['results'];
@@ -82,7 +97,11 @@ class ParsimapApi implements MapService {
 
       return places;
     } on DioException catch (error) {
+      _health?.recordFailure(parsimap: true);
       throw _mapDioError(error);
+    } catch (_) {
+      _health?.recordFailure(parsimap: true);
+      throw const MapServiceException('ارتباط با پارسی‌مپ برقرار نشد.');
     }
   }
 
@@ -91,24 +110,32 @@ class ParsimapApi implements MapService {
     _requireServiceToken();
 
     try {
-      final response = await _dio.get(
-        AppConstants.parsimapReversePath,
-        queryParameters: {
-          'key': Secrets.parsimapServiceToken,
-          'location': '${point.longitude},${point.latitude}',
-          'local_address': false,
-          'approx_address': false,
-          'subdivision': false,
-          'plate': false,
-          'request_id': false,
-        },
+      final response = await ApiCall.withResilience<Response<dynamic>>(
+        call: () => _dio.get(
+          AppConstants.parsimapReversePath,
+          queryParameters: {
+            'key': Secrets.parsimapServiceToken,
+            'location': '${point.longitude},${point.latitude}',
+            'local_address': false,
+            'approx_address': false,
+            'subdivision': false,
+            'plate': false,
+            'request_id': false,
+          },
+        ),
       );
+
+      _health?.recordSuccess(parsimap: true);
 
       final data = _asMap(response.data);
       return data['address']?.toString() ??
           data['formatted_address']?.toString();
     } on DioException catch (error) {
+      _health?.recordFailure(parsimap: true);
       throw _mapDioError(error);
+    } catch (_) {
+      _health?.recordFailure(parsimap: true);
+      throw const MapServiceException('ارتباط با پارسی‌مپ برقرار نشد.');
     }
   }
 
@@ -133,7 +160,16 @@ class ParsimapApi implements MapService {
       };
 
   @override
-  Future<String?> resolveTileUrlTemplate() => _tileResolver.resolve();
+  Future<String?> resolveTileUrlTemplate() async {
+    final template = await _tileResolver.resolve();
+    if (template == null || template.isEmpty) {
+      _health?.recordFailure(parsimap: true);
+      return null;
+    }
+
+    _health?.recordSuccess(parsimap: true);
+    return template;
+  }
 
   void _requireServiceToken() {
     if (Secrets.parsimapServiceToken.isEmpty) {

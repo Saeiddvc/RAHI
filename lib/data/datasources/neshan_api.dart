@@ -6,15 +6,22 @@ import 'package:latlong2/latlong.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/secrets.dart';
 import '../../core/services/map_service.dart';
+import '../../core/services/provider_health.dart';
+import '../../core/utils/api_call.dart';
 import '../models/map_route.dart';
 import '../models/place.dart';
 import '../models/route_step.dart';
 
 class NeshanApi implements MapService {
   final Dio _dio;
+  final ProviderHealthNotifier? _health;
 
-  NeshanApi([Dio? dio])
-      : _dio = dio ??
+  NeshanApi([Dio? dio]) : this.withHealth(dio: dio);
+
+  NeshanApi.withHealth({
+    Dio? dio,
+    ProviderHealthNotifier? health,
+  })  : _dio = dio ??
             Dio(
               BaseOptions(
                 baseUrl: AppConstants.neshanBaseUrl,
@@ -22,10 +29,12 @@ class NeshanApi implements MapService {
                   'Api-Key': Secrets.neshanApiKey,
                   'Content-Type': 'application/json',
                 },
-                connectTimeout: const Duration(seconds: 10),
-                receiveTimeout: const Duration(seconds: 15),
+                connectTimeout: ApiCall.defaultTimeout,
+                sendTimeout: ApiCall.defaultTimeout,
+                receiveTimeout: ApiCall.defaultTimeout,
               ),
-            );
+            ),
+        _health = health;
 
   @override
   String get displayName => 'نشان (Neshan)';
@@ -53,10 +62,14 @@ class NeshanApi implements MapService {
         },
       });
 
-      final response = await _dio.get(
-        AppConstants.neshanSearchPath,
-        queryParameters: {'q': query},
+      final response = await ApiCall.withResilience<Response<dynamic>>(
+        call: () => _dio.get(
+          AppConstants.neshanSearchPath,
+          queryParameters: {'q': query},
+        ),
       );
+
+      _health?.recordSuccess(parsimap: false);
 
       final data = _asMap(response.data);
       final items = data['items'];
@@ -71,7 +84,11 @@ class NeshanApi implements MapService {
           )
           .toList(growable: false);
     } on DioException catch (error) {
+      _health?.recordFailure(parsimap: false);
       throw _mapDioError(error);
+    } catch (_) {
+      _health?.recordFailure(parsimap: false);
+      throw const MapServiceException('ارتباط با نشان برقرار نشد.');
     }
   }
 
@@ -80,18 +97,26 @@ class NeshanApi implements MapService {
     _requireApiKey();
 
     try {
-      final response = await _dio.get(
-        AppConstants.neshanReversePath,
-        queryParameters: {
-          'lat': point.latitude,
-          'lng': point.longitude,
-        },
+      final response = await ApiCall.withResilience<Response<dynamic>>(
+        call: () => _dio.get(
+          AppConstants.neshanReversePath,
+          queryParameters: {
+            'lat': point.latitude,
+            'lng': point.longitude,
+          },
+        ),
       );
+
+      _health?.recordSuccess(parsimap: false);
 
       final data = _asMap(response.data);
       return data['formatted_address']?.toString();
     } on DioException catch (error) {
+      _health?.recordFailure(parsimap: false);
       throw _mapDioError(error);
+    } catch (_) {
+      _health?.recordFailure(parsimap: false);
+      throw const MapServiceException('ارتباط با نشان برقرار نشد.');
     }
   }
 
@@ -110,18 +135,22 @@ class NeshanApi implements MapService {
     }
 
     try {
-      final response = await _dio.get(
-        AppConstants.neshanDirectionPath,
-        queryParameters: {
-          'type': type.apiValue,
-          'origin': '${origin.latitude},${origin.longitude}',
-          'destination':
-              '${destination.latitude},${destination.longitude}',
-          'alternative': true,
-          'avoidTrafficZone': false,
-          'avoidOddEvenZone': false,
-        },
+      final response = await ApiCall.withResilience<Response<dynamic>>(
+        call: () => _dio.get(
+          AppConstants.neshanDirectionPath,
+          queryParameters: {
+            'type': type.apiValue,
+            'origin': '${origin.latitude},${origin.longitude}',
+            'destination':
+                '${destination.latitude},${destination.longitude}',
+            'alternative': true,
+            'avoidTrafficZone': false,
+            'avoidOddEvenZone': false,
+          },
+        ),
       );
+
+      _health?.recordSuccess(parsimap: false);
 
       final data = _asMap(response.data);
       final rawRoutes = data['routes'];
@@ -141,7 +170,11 @@ class NeshanApi implements MapService {
 
       return routes;
     } on DioException catch (error) {
+      _health?.recordFailure(parsimap: false);
       throw _mapDioError(error);
+    } catch (_) {
+      _health?.recordFailure(parsimap: false);
+      throw const MapServiceException('ارتباط با نشان برقرار نشد.');
     }
   }
 

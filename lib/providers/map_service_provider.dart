@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/services/composite_map_service.dart';
 import '../core/services/map_service.dart';
+import '../core/services/provider_health.dart';
 import '../data/datasources/neshan_api.dart';
 import '../data/datasources/parsimap_api.dart';
 
@@ -12,11 +13,15 @@ final selectedMapProviderProvider =
 
 final mapServiceProvider = Provider<MapService>((ref) {
   final selected = ref.watch(selectedMapProviderProvider);
+  final health = ref.read(providerHealthProvider.notifier);
 
   return switch (selected) {
-    MapProviderKind.hybrid => CompositeMapService(),
-    MapProviderKind.parsimap => ParsimapApi(),
-    MapProviderKind.neshan => NeshanApi(),
+    MapProviderKind.hybrid => CompositeMapService(
+        parsimap: ParsimapApi.withHealth(health: health),
+        neshan: NeshanApi.withHealth(health: health),
+      ),
+    MapProviderKind.parsimap => ParsimapApi.withHealth(health: health),
+    MapProviderKind.neshan => NeshanApi.withHealth(health: health),
   };
 });
 

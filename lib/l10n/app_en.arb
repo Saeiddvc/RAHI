@@ -83,5 +83,10 @@
         "type": "int"
       }
     }
-  }
+  },
+  "searchServiceUnavailable": "Search service unavailable",
+  "searchConnectionHint": "Could not connect to the service. Check your internet connection and try again",
+  "providerDegraded": "Slow connection",
+  "providerDown": "Service unavailable",
+  "checkingConnection": "Checking connection..."
 }

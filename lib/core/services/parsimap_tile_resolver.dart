@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../constants/app_constants.dart';
 import '../constants/secrets.dart';
+import '../utils/api_call.dart';
 
 /// Resolves Parsimap's actual raster XYZ template from its Style API.
 ///
@@ -14,8 +15,9 @@ class ParsimapTileResolver {
             Dio(
               BaseOptions(
                 baseUrl: AppConstants.parsimapBaseUrl,
-                connectTimeout: const Duration(seconds: 10),
-                receiveTimeout: const Duration(seconds: 15),
+                connectTimeout: ApiCall.defaultTimeout,
+                sendTimeout: ApiCall.defaultTimeout,
+                receiveTimeout: ApiCall.defaultTimeout,
               ),
             );
 
@@ -41,9 +43,11 @@ class ParsimapTileResolver {
     }
 
     try {
-      final response = await _dio.get(
-        AppConstants.parsimapRasterStylePath,
-        queryParameters: {'key': Secrets.parsimapMapToken},
+      final response = await ApiCall.withResilience<Response<dynamic>>(
+        call: () => _dio.get(
+          AppConstants.parsimapRasterStylePath,
+          queryParameters: {'key': Secrets.parsimapMapToken},
+        ),
       );
 
       final template = extractTileTemplate(response.data);

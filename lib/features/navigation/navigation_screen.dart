@@ -12,6 +12,7 @@ import '../../data/models/location_fix.dart';
 import '../../data/models/route_step.dart';
 import '../../l10n/app_localizations.dart';
 import '../../providers/location_provider.dart';
+import '../../providers/map_service_provider.dart';
 import '../map/widgets/rahi_map.dart';
 import 'providers/navigation_provider.dart';
 import 'widgets/remaining_steps_sheet.dart';
@@ -40,6 +41,7 @@ class _NavigationScreenState
     final l10n = AppLocalizations.of(context)!;
     final navigation = ref.watch(navigationProvider);
     final userLocation = ref.watch(locationProvider);
+    final tileTemplate = ref.watch(tileTemplateProvider);
     final route = navigation.route;
 
     ref.listen<LocationFix?>(locationFixProvider, (previous, next) {
@@ -123,6 +125,13 @@ class _NavigationScreenState
                 navigation.destination?.location ??
                 (route.points.isNotEmpty ? route.points.last : null),
           ),
+          if (tileTemplate.isLoading)
+            const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: LinearProgressIndicator(minHeight: 2),
+            ),
           Positioned(
             top: MediaQuery.paddingOf(context).top + 8,
             left: 8,
