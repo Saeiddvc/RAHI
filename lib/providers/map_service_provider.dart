@@ -27,11 +27,11 @@ final mapServiceProvider = Provider<MapService>((ref) {
 /// endpoint. Other providers keep using their synchronous tile contract.
 final tileTemplateProvider = FutureProvider<String?>((ref) async {
   final service = ref.watch(mapServiceProvider);
+  final template = await service.resolveTileUrlTemplate();
 
-  if (service is AsyncTileTemplateService) {
-    return service.resolveTileUrlTemplate();
+  if (template == null || template.trim().isEmpty) {
+    return null;
   }
 
-  final template = service.tileUrlTemplate.trim();
-  return template.isEmpty ? null : template;
+  return template;
 });

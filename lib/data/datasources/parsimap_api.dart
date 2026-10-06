@@ -8,7 +8,7 @@ import '../../core/services/parsimap_tile_resolver.dart';
 import '../models/map_route.dart';
 import '../models/place.dart';
 
-class ParsimapApi implements MapService, AsyncTileTemplateService {
+class ParsimapApi implements MapService {
   final Dio _dio;
   final ParsimapTileResolver _tileResolver;
 
