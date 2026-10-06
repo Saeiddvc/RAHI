@@ -220,6 +220,9 @@ class NeshanApi implements MapService {
   @override
   Map<String, String> get tileUrlParams => const {};
 
+  @override
+  Future<String?> resolveTileUrlTemplate() async => tileUrlTemplate;
+
   void _requireApiKey() {
     if (Secrets.neshanApiKey.isEmpty) {
       throw const MapServiceException(

@@ -112,6 +112,9 @@ class _FakeMapService implements MapService {
   @override
   final Map<String, String> tileUrlParams;
 
+  @override
+  Future<String?> resolveTileUrlTemplate() async => tileUrlTemplate;
+
   int searchCalls = 0;
   int reverseCalls = 0;
   int directionCalls = 0;
