@@ -14,6 +14,12 @@ enum RouteType {
   final String apiValue;
 }
 
+/// Optional capability for map services whose raster tile template must be
+/// resolved asynchronously before it can be consumed by flutter_map.
+abstract interface class AsyncTileTemplateService {
+  Future<String?> resolveTileUrlTemplate();
+}
+
 abstract class MapService {
   String get displayName;
 

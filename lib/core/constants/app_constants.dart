@@ -17,6 +17,8 @@ class AppConstants {
 
   static const String parsimapBaseUrl = 'https://api.parsimap.ir';
   static const String parsimapReversePath = '/geocode/reverse';
+  static const String parsimapRasterStylePath =
+      '/styles/parsimap-streets-v11-raster';
   static const String parsimapTileUrl =
       'https://api.parsimap.ir/tile/parsimap-streets-v11-raster/{z}/{x}/{y}';
 

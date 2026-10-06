@@ -30,10 +30,14 @@ class RahiMap extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final userLocation = ref.watch(locationProvider);
     final service = ref.watch(mapServiceProvider);
-    final tileUrl = _buildTileUrl(
-      service.tileUrlTemplate,
-      service.tileUrlParams,
-    );
+    final tileTemplate = ref.watch(tileTemplateProvider);
+    final resolvedTemplate = tileTemplate.asData?.value;
+    final tileUrl = resolvedTemplate == null || resolvedTemplate.isEmpty
+        ? AppConstants.osmTileUrl
+        : _buildTileUrl(
+            resolvedTemplate,
+            service.tileUrlParams,
+          );
 
     return FlutterMap(
       mapController: mapController,
@@ -48,8 +52,7 @@ class RahiMap extends ConsumerWidget {
       ),
       children: [
         TileLayer(
-          urlTemplate:
-              tileUrl.isEmpty ? AppConstants.osmTileUrl : tileUrl,
+          urlTemplate: tileUrl,
           userAgentPackageName: AppConstants.userAgent,
           maxZoom: 19,
         ),

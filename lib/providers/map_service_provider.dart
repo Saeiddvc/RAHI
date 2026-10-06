@@ -19,3 +19,19 @@ final mapServiceProvider = Provider<MapService>((ref) {
     MapProviderKind.neshan => NeshanApi(),
   };
 });
+
+
+/// Final raster tile template for the active provider.
+///
+/// Parsimap/Hybrid resolve their real XYZ template from the Parsimap Style
+/// endpoint. Other providers keep using their synchronous tile contract.
+final tileTemplateProvider = FutureProvider<String?>((ref) async {
+  final service = ref.watch(mapServiceProvider);
+
+  if (service is AsyncTileTemplateService) {
+    return service.resolveTileUrlTemplate();
+  }
+
+  final template = service.tileUrlTemplate.trim();
+  return template.isEmpty ? null : template;
+});

@@ -10,7 +10,7 @@ import 'map_service.dart';
 ///
 /// Search, reverse geocoding and raster tiles are delegated to Parsimap.
 /// Routing and supported route types are delegated to Neshan.
-class CompositeMapService implements MapService {
+class CompositeMapService implements MapService, AsyncTileTemplateService {
   final MapService _parsimap;
   final MapService _neshan;
 
@@ -57,4 +57,13 @@ class CompositeMapService implements MapService {
 
   @override
   Map<String, String> get tileUrlParams => _parsimap.tileUrlParams;
+
+  @override
+  Future<String?> resolveTileUrlTemplate() {
+    final service = _parsimap;
+    if (service is AsyncTileTemplateService) {
+      return service.resolveTileUrlTemplate();
+    }
+    return Future<String?>.value(service.tileUrlTemplate);
+  }
 }

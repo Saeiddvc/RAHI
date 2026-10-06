@@ -4,13 +4,15 @@ import 'package:latlong2/latlong.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/secrets.dart';
 import '../../core/services/map_service.dart';
+import '../../core/services/parsimap_tile_resolver.dart';
 import '../models/map_route.dart';
 import '../models/place.dart';
 
-class ParsimapApi implements MapService {
+class ParsimapApi implements MapService, AsyncTileTemplateService {
   final Dio _dio;
+  final ParsimapTileResolver _tileResolver;
 
-  ParsimapApi([Dio? dio])
+  ParsimapApi([Dio? dio, ParsimapTileResolver? tileResolver])
       : _dio = dio ??
             Dio(
               BaseOptions(
@@ -18,7 +20,8 @@ class ParsimapApi implements MapService {
                 connectTimeout: const Duration(seconds: 10),
                 receiveTimeout: const Duration(seconds: 15),
               ),
-            );
+            ),
+        _tileResolver = tileResolver ?? ParsimapTileResolver();
 
   @override
   String get displayName => 'پارسی‌مپ (Parsimap)';
@@ -128,6 +131,9 @@ class ParsimapApi implements MapService {
         if (Secrets.parsimapMapToken.isNotEmpty)
           'key': Secrets.parsimapMapToken,
       };
+
+  @override
+  Future<String?> resolveTileUrlTemplate() => _tileResolver.resolve();
 
   void _requireServiceToken() {
     if (Secrets.parsimapServiceToken.isEmpty) {
