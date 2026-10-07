@@ -4,20 +4,21 @@ import '../core/services/map_service.dart';
 import '../data/datasources/neshan_api.dart';
 import '../data/datasources/parsimap_api.dart';
 
-enum MapProviderKind { neshan, parsimap }
-
-final selectedMapProviderProvider =
-    StateProvider<MapProviderKind>((ref) => MapProviderKind.neshan);
-
-final mapServiceProvider = Provider<MapService>((ref) {
-  final selected = ref.watch(selectedMapProviderProvider);
-
-  return switch (selected) {
-    MapProviderKind.neshan => NeshanApi(),
-    MapProviderKind.parsimap => ParsimapApi(),
-  };
-});
-
+/// RAHI provider policy:
+/// - Parsimap: primary place search / geocoding service.
+/// - Neshan: direction engine where Parsimap routing is not yet verified.
+/// - OSM: raster map fallback, exposed by NeshanApi.tileUrlTemplate.
+///
+/// Keep these responsibilities explicit. UI must never switch routing/search
+/// behavior implicitly.
 final searchServiceProvider = Provider<MapService>((ref) {
   return ParsimapApi();
+});
+
+final reverseServiceProvider = Provider<MapService>((ref) {
+  return ParsimapApi();
+});
+
+final routingServiceProvider = Provider<MapService>((ref) {
+  return NeshanApi();
 });
