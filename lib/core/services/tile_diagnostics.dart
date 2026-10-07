@@ -113,15 +113,7 @@ class TileDiagnostics {
       );
     }
 
-    final parsimapUrl = resolvedParsimapTemplate == null
-        ? ''
-        : TileUrlComposer.compose(
-            resolvedParsimapTemplate,
-            {
-              if (Secrets.parsimapMapToken.isNotEmpty)
-                'key': Secrets.parsimapMapToken,
-            },
-          );
+    final parsimapUrl = resolvedParsimapTemplate ?? '';
 
     final parsimapFuture = parsimapUrl.isEmpty
         ? Future<TileProbeResult>.value(

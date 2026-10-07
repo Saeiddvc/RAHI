@@ -154,10 +154,7 @@ class ParsimapApi implements MapService {
   String get tileUrlTemplate => AppConstants.parsimapTileUrl;
 
   @override
-  Map<String, String> get tileUrlParams => {
-        if (Secrets.parsimapMapToken.isNotEmpty)
-          'key': Secrets.parsimapMapToken,
-      };
+  Map<String, String> get tileUrlParams => const {};
 
   @override
   Future<String?> resolveTileUrlTemplate() async {

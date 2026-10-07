@@ -3,7 +3,7 @@ import 'package:rahi/core/services/parsimap_tile_resolver.dart';
 
 void main() {
   group('ParsimapTileResolver.extractTileTemplate', () {
-    test('prefers composite tile template and strips inline key', () {
+    test('prefers composite tile template and preserves it exactly', () {
       final result = ParsimapTileResolver.extractTileTemplate({
         'sources': {
           'other': {
@@ -19,7 +19,7 @@ void main() {
 
       expect(
         result,
-        'https://tiles.parsimap.ir/{z}/{x}/{y}?foo=bar',
+        'https://tiles.parsimap.ir/{z}/{x}/{y}?key=secret&foo=bar',
       );
     });
 
