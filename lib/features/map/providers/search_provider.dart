@@ -56,7 +56,7 @@ class SearchNotifier extends StateNotifier<SearchState> {
     );
 
     try {
-      final service = _ref.read(mapServiceProvider);
+      final service = _ref.read(searchServiceProvider);
       final results = await service.search(
         term: normalizedTerm,
         center: center,

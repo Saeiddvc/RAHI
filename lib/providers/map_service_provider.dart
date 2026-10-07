@@ -17,3 +17,7 @@ final mapServiceProvider = Provider<MapService>((ref) {
     MapProviderKind.parsimap => ParsimapApi(),
   };
 });
+
+final searchServiceProvider = Provider<MapService>((ref) {
+  return ParsimapApi();
+});
