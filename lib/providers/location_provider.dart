@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -46,25 +47,58 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   static const Duration routeFreshMaxAge = Duration(seconds: 30);
   static const double routeMaxAccuracyMeters = 50;
   static const double displayMaxAccuracyMeters = 100;
-  static const Duration acquisitionTimeout = Duration(seconds: 12);
+  static const Duration acquisitionTimeout = Duration(seconds: 15);
+  static const double minimumGnssSatellitesUsed = 4;
 
-  static const LocationSettings _currentLocationSettings = LocationSettings(
-    accuracy: LocationAccuracy.bestForNavigation,
-    distanceFilter: 0,
-    timeLimit: Duration(seconds: 8),
-  );
+  static LocationSettings get _currentLocationSettings {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
+        forceLocationManager: true,
+        timeLimit: const Duration(seconds: 10),
+      );
+    }
 
-  static const LocationSettings _streamLocationSettings = LocationSettings(
-    accuracy: LocationAccuracy.bestForNavigation,
-    distanceFilter: 0,
-  );
+    return const LocationSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 0,
+      timeLimit: Duration(seconds: 10),
+    );
+  }
+
+  static LocationSettings get _streamLocationSettings {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
+        forceLocationManager: true,
+        intervalDuration: const Duration(seconds: 1),
+      );
+    }
+
+    return const LocationSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 0,
+    );
+  }
 
   LocationFix? get currentFix => _ref.read(locationFixProvider);
 
   bool isFixUsableForRoute([LocationFix? candidate]) {
     final fix = candidate ?? currentFix;
     if (fix == null) return false;
-    if (!fix.isGps) return false;
+
+    final requireSatelliteEvidence =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+    if (!fix.hasTrustedGnss(
+      requireSatelliteEvidence: requireSatelliteEvidence,
+      minSatellitesUsed: minimumGnssSatellitesUsed,
+    )) {
+      return false;
+    }
+
     if (!fix.isFresh(maxAge: routeFreshMaxAge)) return false;
     if (!fix.isAccurate(maxMeters: routeMaxAccuracyMeters)) return false;
     return true;
@@ -156,12 +190,14 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       if (isFixUsableForRoute()) {
         _setError(null);
       } else {
-        _setError('موقعیت دریافت شد اما هنوز برای مسیریابی دقیق نیست.');
+        _setError('موقعیت دریافت شد اما هنوز Fix ماهواره‌ای قابل‌اعتماد نیست.');
       }
       return;
     } catch (_) {
       try {
-        final lastKnown = await Geolocator.getLastKnownPosition();
+        final lastKnown = await Geolocator.getLastKnownPosition(
+          forceAndroidLocationManager: true,
+        );
 
         if (lastKnown != null) {
           _setFix(lastKnown, LocationSource.lastKnown);
@@ -194,9 +230,12 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     );
   }
 
-  /// Waits briefly for a fresh high-accuracy fix instead of routing from an
-  /// approximate position. Returns null when route-grade accuracy is not
-  /// reached within the acquisition window.
+  /// Waits for a fresh route-grade GNSS fix.
+  ///
+  /// On Android the LocationManager is forced and a fix is accepted only when
+  /// the platform reports real GNSS satellite participation. This prevents a
+  /// Wi-Fi/cell fused fix with a misleadingly small accuracy radius from being
+  /// used as the route origin.
   Future<LocationFix?> acquireUsableRouteFix({
     Duration timeout = acquisitionTimeout,
   }) async {
@@ -227,10 +266,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
 
     try {
       subscription = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.bestForNavigation,
-          distanceFilter: 0,
-        ),
+        locationSettings: _streamLocationSettings,
       ).listen(
         (position) {
           _setFix(position, LocationSource.gps);
@@ -251,24 +287,49 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     }
   }
 
-  void _setFix(Position position, LocationSource source) {
+  void _setFix(Position position, LocationSource requestedSource) {
+    final androidPosition =
+        position is AndroidPosition ? position : null;
+
+    final isAndroid =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+    final satellitesUsed = androidPosition?.satellitesUsedInFix;
+    final hasGnssEvidence =
+        !isAndroid ||
+        (satellitesUsed != null &&
+            satellitesUsed >= minimumGnssSatellitesUsed);
+
+    final effectiveSource =
+        requestedSource == LocationSource.lastKnown
+            ? LocationSource.lastKnown
+            : (hasGnssEvidence
+                ? LocationSource.gps
+                : LocationSource.unknown);
+
     final fix = LocationFix(
       location: LatLng(position.latitude, position.longitude),
       timestamp: position.timestamp.toUtc(),
       accuracyMeters: position.accuracy,
-      source: source,
+      source: effectiveSource,
+      isMocked: position.isMocked,
+      satelliteCount: androidPosition?.satelliteCount,
+      satellitesUsedInFix: satellitesUsed,
     );
 
     _ref.read(locationFixProvider.notifier).state = fix;
 
     final displayable =
-        source == LocationSource.gps &&
-        fix.isFresh(maxAge: routeFreshMaxAge) &&
-        fix.isAccurate(maxMeters: displayMaxAccuracyMeters);
+        isFixUsableForRoute(fix) ||
+        (effectiveSource == LocationSource.gps &&
+            !fix.isMocked &&
+            fix.isFresh(maxAge: routeFreshMaxAge) &&
+            fix.isAccurate(maxMeters: displayMaxAccuracyMeters));
 
     if (displayable) {
       state = fix.location;
-    } else if (state == null || source == LocationSource.lastKnown) {
+    } else if (state == null ||
+        requestedSource == LocationSource.lastKnown) {
       state = null;
     }
   }

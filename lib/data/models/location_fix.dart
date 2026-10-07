@@ -13,12 +13,18 @@ class LocationFix {
   final DateTime timestamp;
   final double accuracyMeters;
   final LocationSource source;
+  final bool isMocked;
+  final double? satelliteCount;
+  final double? satellitesUsedInFix;
 
   const LocationFix({
     required this.location,
     required this.timestamp,
     required this.accuracyMeters,
     required this.source,
+    this.isMocked = false,
+    this.satelliteCount,
+    this.satellitesUsedInFix,
   });
 
   Duration get age {
@@ -40,6 +46,17 @@ class LocationFix {
     return accuracyMeters > 0 && accuracyMeters <= maxMeters;
   }
 
+  bool hasTrustedGnss({
+    bool requireSatelliteEvidence = false,
+    double minSatellitesUsed = 4,
+  }) {
+    if (!isGps || isMocked) return false;
+    if (!requireSatelliteEvidence) return true;
+
+    final used = satellitesUsedInFix;
+    return used != null && used >= minSatellitesUsed;
+  }
+
   @override
   String toString() {
     return 'LocationFix('
@@ -47,7 +64,9 @@ class LocationFix {
         'lng: ${location.longitude}, '
         'age: ${ageSeconds}s, '
         'accuracy: ${accuracyMeters}m, '
-        'source: $source'
+        'source: $source, '
+        'mocked: $isMocked, '
+        'satellites: ${satellitesUsedInFix ?? "-"}/${satelliteCount ?? "-"}'
         ')';
   }
 }

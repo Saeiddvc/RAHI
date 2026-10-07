@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/tile_diagnostics.dart';
+import '../../../data/models/location_fix.dart';
 import '../../../data/models/map_route.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/map_service_provider.dart';
@@ -32,6 +33,7 @@ class RahiMap extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userLocation = ref.watch(locationProvider);
+    final locationFix = ref.watch(locationFixProvider);
     final tileTemplate = ref.watch(tileTemplateProvider);
     final resolvedTemplate = tileTemplate.asData?.value;
     final usingFallback =
@@ -112,6 +114,7 @@ class RahiMap extends ConsumerWidget {
             right: 12,
             child: _TileDiagnosticsOverlay(
               diagnostics: diagnostics!,
+              locationFix: locationFix,
             ),
           ),
       ],
@@ -187,14 +190,16 @@ class _UserMarker extends StatelessWidget {
 
 class _TileDiagnosticsOverlay extends StatelessWidget {
   final AsyncValue<TileDiagnosticsReport> diagnostics;
+  final LocationFix? locationFix;
 
   const _TileDiagnosticsOverlay({
     required this.diagnostics,
+    required this.locationFix,
   });
 
   @override
   Widget build(BuildContext context) {
-    final lines = diagnostics.when(
+    final tileLines = diagnostics.when(
       data: (report) => report.lines,
       loading: () => const ['TILE DIAG: running...'],
       error: (error, _) => [
@@ -202,6 +207,15 @@ class _TileDiagnosticsOverlay extends StatelessWidget {
         error.runtimeType.toString(),
       ],
     );
+
+    final fix = locationFix;
+    final locationLine = fix == null
+        ? 'loc: no fix'
+        : 'loc: ${fix.source.name} | acc ${fix.accuracyMeters.round()}m | '
+            'age ${fix.ageSeconds}s | mock ${fix.isMocked ? "YES" : "no"} | '
+            'sat ${_fmt(fix.satellitesUsedInFix)}/${_fmt(fix.satelliteCount)}';
+
+    final lines = [...tileLines, locationLine];
 
     return IgnorePointer(
       child: Material(
@@ -222,4 +236,9 @@ class _TileDiagnosticsOverlay extends StatelessWidget {
       ),
     );
   }
+  static String _fmt(double? value) {
+    if (value == null) return '-';
+    return value.round().toString();
+  }
+
 }
