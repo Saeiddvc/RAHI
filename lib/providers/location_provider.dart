@@ -33,14 +33,14 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   bool _wentToSettings = false;
 
   static const LocationSettings _currentLocationSettings = LocationSettings(
-    accuracy: LocationAccuracy.high,
+    accuracy: LocationAccuracy.bestForNavigation,
     distanceFilter: 0,
-    timeLimit: Duration(seconds: 8),
+    timeLimit: Duration(seconds: 15),
   );
 
   static const LocationSettings _streamLocationSettings = LocationSettings(
     accuracy: LocationAccuracy.bestForNavigation,
-    distanceFilter: 10,
+    distanceFilter: 5,
   );
 
   Future<void> _init() async {
@@ -53,12 +53,13 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
+        await _positionSubscription?.cancel();
+        _positionSubscription = null;
+        state = null;
         _setStatus(
           LocationAccessStatus.serviceDisabled,
           error: 'سرویس موقعیت مکانی خاموش است.',
         );
-        _positionSubscription?.cancel();
-        state = null;
         return;
       }
 
@@ -69,69 +70,61 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       }
 
       if (permission == LocationPermission.deniedForever) {
+        await _positionSubscription?.cancel();
+        _positionSubscription = null;
+        state = null;
         _setStatus(
           LocationAccessStatus.deniedForever,
           error: 'مجوز موقعیت مکانی برای برنامه مسدود شده است.',
         );
-        _positionSubscription?.cancel();
-        state = null;
         return;
       }
 
       if (permission == LocationPermission.denied) {
+        await _positionSubscription?.cancel();
+        _positionSubscription = null;
+        state = null;
         _setStatus(
           LocationAccessStatus.denied,
           error: 'مجوز موقعیت مکانی داده نشد.',
         );
-        _positionSubscription?.cancel();
-        state = null;
         return;
       }
 
       if (permission != LocationPermission.whileInUse &&
           permission != LocationPermission.always) {
+        await _positionSubscription?.cancel();
+        _positionSubscription = null;
+        state = null;
         _setStatus(
           LocationAccessStatus.denied,
           error: 'مجوز موقعیت مکانی داده نشد.',
         );
-        _positionSubscription?.cancel();
-        state = null;
         return;
       }
 
       _setStatus(LocationAccessStatus.granted);
-      await _loadInitialPosition();
+      await _loadFreshPosition();
       _startLiveUpdates();
     } catch (_) {
-      _setError('دریافت موقعیت مکانی با خطا مواجه شد.');
       state = null;
+      _setError('موقعیت فعلی هنوز در دسترس نیست.');
     }
   }
 
-  Future<void> _loadInitialPosition() async {
+  Future<void> _loadFreshPosition() async {
     try {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: _currentLocationSettings,
       );
 
       state = LatLng(position.latitude, position.longitude);
-      _setError(null);
-      return;
+      _setStatus(LocationAccessStatus.granted);
     } catch (_) {
-      try {
-        final lastKnown = await Geolocator.getLastKnownPosition();
-
-        if (lastKnown != null) {
-          state = LatLng(lastKnown.latitude, lastKnown.longitude);
-          _setError(null);
-        } else {
-          state = null;
-          _setError('موقعیت فعلی هنوز در دسترس نیست.');
-        }
-      } catch (_) {
-        state = null;
-        _setError('موقعیت فعلی هنوز در دسترس نیست.');
-      }
+      // Deliberately do not fall back to getLastKnownPosition().
+      // A stale fix must never become the origin of a new route.
+      state = null;
+      _setError('موقعیت فعلی هنوز در دسترس نیست.');
     }
   }
 
