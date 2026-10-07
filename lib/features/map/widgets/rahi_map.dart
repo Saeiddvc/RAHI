@@ -116,8 +116,7 @@ class RahiMap extends ConsumerWidget {
 
     return polylines;
   }
-
-
+}
 
 class _UserMarker extends StatelessWidget {
   const _UserMarker();
