@@ -300,7 +300,7 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
     );
 
     try {
-      final service = _ref.read(mapServiceProvider);
+      final service = _ref.read(routingServiceProvider);
       final routeType = _ref.read(settingsProvider).routeType;
 
       if (!service.supportedRouteTypes.contains(routeType)) {
