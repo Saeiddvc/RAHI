@@ -64,6 +64,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
     final l10n = AppLocalizations.of(context)!;
     final userLocation = ref.watch(locationProvider);
     final accessStatus = ref.watch(locationAccessProvider);
+    final locationError = ref.watch(locationErrorProvider);
     final routing = ref.watch(routingProvider);
 
     final center = userLocation ?? _mapCenter;
@@ -115,8 +116,16 @@ class _MapScreenState extends ConsumerState<MapScreen>
                     actionLabel: l10n.openLocationSettings,
                     onAction: _openLocationSettings,
                   ),
+                if (accessStatus == LocationAccessStatus.reducedAccuracy)
+                  _PermissionBanner(
+                    icon: Icons.gps_off_rounded,
+                    message: locationError ?? l10n.noLocationAccess,
+                    actionLabel: l10n.openSettings,
+                    onAction: _openAppSettings,
+                  ),
                 if (accessStatus == LocationAccessStatus.deniedForever ||
-                    accessStatus == LocationAccessStatus.serviceDisabled)
+                    accessStatus == LocationAccessStatus.serviceDisabled ||
+                    accessStatus == LocationAccessStatus.reducedAccuracy)
                   const SizedBox(height: 8),
                 Row(
                   children: [
@@ -201,28 +210,33 @@ class _MapScreenState extends ConsumerState<MapScreen>
     if (_locating) return;
 
     setState(() => _locating = true);
-    await ref.read(locationProvider.notifier).refresh();
+
+    final location = await ref
+        .read(locationProvider.notifier)
+        .acquireFreshLocation();
 
     if (!mounted) return;
 
-    final location = ref.read(locationProvider);
     if (location != null) {
-      _mapController.move(location, 15);
+      _mapController.move(location, 16);
       _mapCenter = location;
+      _didAutoCenterOnLocation = true;
     } else {
-      final accessStatus = ref.read(locationAccessProvider);
-      if (accessStatus != LocationAccessStatus.deniedForever &&
-          accessStatus != LocationAccessStatus.serviceDisabled) {
-        final l10n = AppLocalizations.of(context)!;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.noLocationAccess)),
-        );
-      }
+      _showLocationError();
     }
 
     if (mounted) {
       setState(() => _locating = false);
     }
+  }
+
+  void _showLocationError() {
+    final message = ref.read(locationErrorProvider) ??
+        AppLocalizations.of(context)!.noLocationAccess;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   Future<void> _openAppSettings() async {
@@ -265,16 +279,14 @@ class _MapScreenState extends ConsumerState<MapScreen>
   }
 
   Future<void> _onDestinationSelected(Place place) async {
-    final userLocation = ref.read(locationProvider);
+    final userLocation = await ref
+        .read(locationProvider.notifier)
+        .acquireFreshLocation();
+
+    if (!mounted) return;
 
     if (userLocation == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            AppLocalizations.of(context)!.noLocationAccess,
-          ),
-        ),
-      );
+      _showLocationError();
       return;
     }
 
@@ -353,11 +365,21 @@ class _MapScreenState extends ConsumerState<MapScreen>
     }
 
     final routing = ref.read(routingProvider);
+    final userLocation = await ref
+        .read(locationProvider.notifier)
+        .acquireFreshLocation();
+
+    if (!mounted) return;
+
+    if (userLocation == null) {
+      _showLocationError();
+      return;
+    }
 
     await ref.read(navigationProvider.notifier).start(
           route,
           destination: routing.destination,
-          initialLocation: ref.read(locationProvider),
+          initialLocation: userLocation,
         );
 
     if (!mounted) return;
