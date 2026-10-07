@@ -135,11 +135,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  static const Set<RouteType> _neshanSupportedRouteTypes = {
-    RouteType.car,
-    RouteType.motorcycle,
-  };
-
   String _routeTypeLabel(
     AppLocalizations l10n,
     RouteType type,
