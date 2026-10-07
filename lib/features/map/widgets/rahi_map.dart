@@ -6,7 +6,6 @@ import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/tile_diagnostics.dart';
-import '../../../core/utils/tile_url_composer.dart';
 import '../../../data/models/map_route.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/map_service_provider.dart';
@@ -33,17 +32,14 @@ class RahiMap extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userLocation = ref.watch(locationProvider);
-    final service = ref.watch(mapServiceProvider);
     final tileTemplate = ref.watch(tileTemplateProvider);
     final resolvedTemplate = tileTemplate.asData?.value;
     final usingFallback =
         resolvedTemplate == null || resolvedTemplate.isEmpty;
-    final tileUrl = usingFallback
-        ? AppConstants.osmTileUrl
-        : TileUrlComposer.compose(
-            resolvedTemplate,
-            service.tileUrlParams,
-          );
+    // A resolved Parsimap template is already fully authenticated by the
+    // Style API. Use it verbatim; only fall back when resolution fails.
+    final tileUrl =
+        usingFallback ? AppConstants.osmTileUrl : resolvedTemplate;
 
     final diagnostics = kDebugMode
         ? ref.watch(

@@ -3,24 +3,22 @@ import 'package:rahi/core/services/parsimap_tile_resolver.dart';
 
 void main() {
   group('ParsimapTileResolver.extractTileTemplate', () {
-    test('prefers composite tile template and strips inline key', () {
+    test('prefers composite tile template and preserves query verbatim', () {
+      const template =
+          'https://tiles.parsimap.ir/{z}/{x}/{y}?key=secret&foo=bar';
+
       final result = ParsimapTileResolver.extractTileTemplate({
         'sources': {
           'other': {
             'tiles': ['https://other.example/{z}/{x}/{y}'],
           },
           'composite': {
-            'tiles': [
-              'https://tiles.parsimap.ir/{z}/{x}/{y}?key=secret&foo=bar',
-            ],
+            'tiles': [template],
           },
         },
       });
 
-      expect(
-        result,
-        'https://tiles.parsimap.ir/{z}/{x}/{y}?foo=bar',
-      );
+      expect(result, template);
     });
 
     test('falls back to first source with tiles', () {

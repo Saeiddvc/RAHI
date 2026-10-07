@@ -6,9 +6,9 @@ import '../utils/api_call.dart';
 
 /// Resolves Parsimap's actual raster XYZ template from its Style API.
 ///
-/// The style response is the source of truth. The sanitized template is cached
-/// only in memory because returned URLs may contain credential-like query
-/// parameters.
+/// The style response is the source of truth. The returned tile template is
+/// preserved verbatim and cached only in memory because it may contain
+/// credential-like query parameters.
 class ParsimapTileResolver {
   ParsimapTileResolver([Dio? dio])
       : _dio = dio ??
@@ -93,35 +93,8 @@ class ParsimapTileResolver {
     final first = tiles.first;
     if (first is! String || first.trim().isEmpty) return null;
 
-    return _stripKeyQueryParameter(first.trim());
-  }
-
-  static String _stripKeyQueryParameter(String template) {
-    final question = template.indexOf('?');
-    if (question < 0) return template;
-
-    final base = template.substring(0, question);
-    final query = template.substring(question + 1);
-
-    final kept = <String>[];
-    for (final part in query.split('&')) {
-      if (part.isEmpty) continue;
-
-      final equals = part.indexOf('=');
-      final rawName = equals < 0 ? part : part.substring(0, equals);
-
-      String name;
-      try {
-        name = Uri.decodeQueryComponent(rawName).toLowerCase();
-      } catch (_) {
-        name = rawName.toLowerCase();
-      }
-
-      if (name == 'key') continue;
-      kept.add(part);
-    }
-
-    if (kept.isEmpty) return base;
-    return '$base?${kept.join('&')}';
+    // Keep the Style API tile template byte-for-byte apart from harmless
+    // surrounding whitespace. Do not strip, rebuild, or append auth params.
+    return first.trim();
   }
 }

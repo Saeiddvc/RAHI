@@ -5,7 +5,6 @@ import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../constants/app_constants.dart';
-import '../constants/secrets.dart';
 import '../services/parsimap_tile_resolver.dart';
 import '../utils/tile_url_composer.dart';
 
@@ -113,15 +112,9 @@ class TileDiagnostics {
       );
     }
 
-    final parsimapUrl = resolvedParsimapTemplate == null
-        ? ''
-        : TileUrlComposer.compose(
-            resolvedParsimapTemplate,
-            {
-              if (Secrets.parsimapMapToken.isNotEmpty)
-                'key': Secrets.parsimapMapToken,
-            },
-          );
+    // Probe exactly the template returned by the Style API. Reconstructing
+    // its query string would invalidate provider-supplied authentication.
+    final parsimapUrl = resolvedParsimapTemplate ?? '';
 
     final parsimapFuture = parsimapUrl.isEmpty
         ? Future<TileProbeResult>.value(
