@@ -1,6 +1,9 @@
 name: Test APK with Real Keys
 
 on:
+  push:
+    branches:
+      - v1-commit-20-core-stable
   workflow_dispatch:
     inputs:
       note:
@@ -78,12 +81,17 @@ jobs:
         shell: bash
         env:
           NESHAN_API_KEY: ${{ secrets.NESHAN_API_KEY }}
+          PARSIMAP_SERVICE_TOKEN: ${{ secrets.PARSIMAP_SERVICE_TOKEN }}
         run: |
           if [ -z "$NESHAN_API_KEY" ]; then
             echo "NESHAN_API_KEY is missing from GitHub Actions repository secrets."
             exit 1
           fi
-          echo "NESHAN_API_KEY is configured."
+          if [ -z "$PARSIMAP_SERVICE_TOKEN" ]; then
+            echo "PARSIMAP_SERVICE_TOKEN is missing from GitHub Actions repository secrets."
+            exit 1
+          fi
+          echo "Required real-key services are configured."
 
       - name: Verify compile-time secrets contract
         shell: bash
