@@ -1,12 +1,16 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/tile_diagnostics.dart';
+import '../../../core/utils/tile_url_composer.dart';
 import '../../../data/models/map_route.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/map_service_provider.dart';
+import '../../../providers/tile_diagnostics_provider.dart';
 
 class RahiMap extends ConsumerWidget {
   final MapController mapController;
@@ -32,14 +36,30 @@ class RahiMap extends ConsumerWidget {
     final service = ref.watch(mapServiceProvider);
     final tileTemplate = ref.watch(tileTemplateProvider);
     final resolvedTemplate = tileTemplate.asData?.value;
-    final tileUrl = resolvedTemplate == null || resolvedTemplate.isEmpty
+    final usingFallback =
+        resolvedTemplate == null || resolvedTemplate.isEmpty;
+    final tileUrl = usingFallback
         ? AppConstants.osmTileUrl
-        : _buildTileUrl(
+        : TileUrlComposer.compose(
             resolvedTemplate,
             service.tileUrlParams,
           );
 
-    return FlutterMap(
+    final diagnostics = kDebugMode
+        ? ref.watch(
+            tileDiagnosticsProvider(
+              TileDiagnosticsRequest(
+                activeUrlTemplate: tileUrl,
+                usingFallback: usingFallback,
+              ),
+            ),
+          )
+        : null;
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: FlutterMap(
       mapController: mapController,
       options: MapOptions(
         initialCenter: center,
@@ -52,6 +72,7 @@ class RahiMap extends ConsumerWidget {
       ),
       children: [
         TileLayer(
+          key: ValueKey(tileUrl),
           urlTemplate: tileUrl,
           userAgentPackageName: AppConstants.userAgent,
           maxZoom: 19,
@@ -85,6 +106,18 @@ class RahiMap extends ConsumerWidget {
                 ),
               ),
             ],
+          ),
+      ],
+    ),
+        ),
+        if (kDebugMode)
+          Positioned(
+            top: 104,
+            left: 12,
+            right: 12,
+            child: _TileDiagnosticsOverlay(
+              diagnostics: diagnostics!,
+            ),
           ),
       ],
     );
@@ -128,22 +161,6 @@ class RahiMap extends ConsumerWidget {
     return polylines;
   }
 
-  String _buildTileUrl(
-    String template,
-    Map<String, String> params,
-  ) {
-    if (params.isEmpty) return template;
-
-    final encoded = params.entries
-        .map(
-          (entry) =>
-              '${Uri.encodeQueryComponent(entry.key)}='
-              '${Uri.encodeQueryComponent(entry.value)}',
-        )
-        .join('&');
-
-    return '$template${template.contains('?') ? '&' : '?'}$encoded';
-  }
 }
 
 class _UserMarker extends StatelessWidget {
@@ -166,6 +183,46 @@ class _UserMarker extends StatelessWidget {
           shape: BoxShape.circle,
           color: primary,
           border: Border.all(color: Colors.white, width: 3),
+        ),
+      ),
+    );
+  }
+}
+
+
+class _TileDiagnosticsOverlay extends StatelessWidget {
+  final AsyncValue<TileDiagnosticsReport> diagnostics;
+
+  const _TileDiagnosticsOverlay({
+    required this.diagnostics,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = diagnostics.when(
+      data: (report) => report.lines,
+      loading: () => const ['TILE DIAG: running...'],
+      error: (error, _) => [
+        'TILE DIAG: provider error',
+        error.runtimeType.toString(),
+      ],
+    );
+
+    return IgnorePointer(
+      child: Material(
+        color: Colors.black87,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Text(
+            lines.join('\n'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              height: 1.35,
+              fontFamily: 'monospace',
+            ),
+          ),
         ),
       ),
     );
