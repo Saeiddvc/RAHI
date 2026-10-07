@@ -37,6 +37,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
     AppConstants.defaultLng,
   );
   bool _locating = false;
+  bool _didAutoCenterOnLocation = false;
 
   @override
   void initState() {
@@ -67,6 +68,19 @@ class _MapScreenState extends ConsumerState<MapScreen>
 
     final center = userLocation ?? _mapCenter;
     final selectedRoute = routing.selectedRoute;
+
+    ref.listen<LatLng?>(locationProvider, (previous, next) {
+      if (next == null || _didAutoCenterOnLocation || routing.hasRoutes) {
+        return;
+      }
+
+      _didAutoCenterOnLocation = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _mapController.move(next, 15);
+        _mapCenter = next;
+      });
+    });
 
     return Scaffold(
       body: Stack(
