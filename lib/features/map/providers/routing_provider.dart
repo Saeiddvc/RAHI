@@ -75,7 +75,7 @@ class RoutingNotifier extends StateNotifier<RoutingState> {
     );
 
     try {
-      final service = _ref.read(mapServiceProvider);
+      final service = _ref.read(routingServiceProvider);
 
       if (!service.supportedRouteTypes.contains(type)) {
         throw MapServiceException(
