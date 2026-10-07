@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -10,6 +11,7 @@ enum LocationAccessStatus {
   denied,
   deniedForever,
   serviceDisabled,
+  reducedAccuracy,
 }
 
 final locationAccessProvider = StateProvider<LocationAccessStatus>(
@@ -30,18 +32,56 @@ class LocationNotifier extends StateNotifier<LatLng?> {
 
   final Ref _ref;
   StreamSubscription<Position>? _positionSubscription;
+  Position? _lastAcceptedPosition;
   bool _wentToSettings = false;
 
-  static const LocationSettings _currentLocationSettings = LocationSettings(
+  static const Duration _maxFixAge = Duration(seconds: 20);
+  static const double _maxAcceptedAccuracyMeters = 80;
+
+  static LocationSettings get _primaryCurrentLocationSettings {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
+        forceLocationManager: true,
+        timeLimit: const Duration(seconds: 18),
+      );
+    }
+
+    return const LocationSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 0,
+      timeLimit: Duration(seconds: 18),
+    );
+  }
+
+  static const LocationSettings _fallbackCurrentLocationSettings =
+      LocationSettings(
     accuracy: LocationAccuracy.bestForNavigation,
     distanceFilter: 0,
-    timeLimit: Duration(seconds: 15),
+    timeLimit: Duration(seconds: 12),
   );
 
-  static const LocationSettings _streamLocationSettings = LocationSettings(
-    accuracy: LocationAccuracy.bestForNavigation,
-    distanceFilter: 5,
-  );
+  static LocationSettings get _streamLocationSettings {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
+        forceLocationManager: true,
+        intervalDuration: const Duration(seconds: 1),
+      );
+    }
+
+    return const LocationSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 0,
+    );
+  }
+
+  bool get hasFreshUsableFix {
+    final position = _lastAcceptedPosition;
+    return position != null && _isUsable(position);
+  }
 
   Future<void> _init() async {
     await _checkAndRequestPermission();
@@ -55,6 +95,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       if (!serviceEnabled) {
         await _positionSubscription?.cancel();
         _positionSubscription = null;
+        _lastAcceptedPosition = null;
         state = null;
         _setStatus(
           LocationAccessStatus.serviceDisabled,
@@ -72,6 +113,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       if (permission == LocationPermission.deniedForever) {
         await _positionSubscription?.cancel();
         _positionSubscription = null;
+        _lastAcceptedPosition = null;
         state = null;
         _setStatus(
           LocationAccessStatus.deniedForever,
@@ -83,6 +125,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       if (permission == LocationPermission.denied) {
         await _positionSubscription?.cancel();
         _positionSubscription = null;
+        _lastAcceptedPosition = null;
         state = null;
         _setStatus(
           LocationAccessStatus.denied,
@@ -95,6 +138,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
           permission != LocationPermission.always) {
         await _positionSubscription?.cancel();
         _positionSubscription = null;
+        _lastAcceptedPosition = null;
         state = null;
         _setStatus(
           LocationAccessStatus.denied,
@@ -103,28 +147,65 @@ class LocationNotifier extends StateNotifier<LatLng?> {
         return;
       }
 
+      if (!kIsWeb) {
+        final accuracyStatus = await Geolocator.getLocationAccuracy();
+        if (accuracyStatus == LocationAccuracyStatus.reduced) {
+          await _positionSubscription?.cancel();
+          _positionSubscription = null;
+          _lastAcceptedPosition = null;
+          state = null;
+          _setStatus(
+            LocationAccessStatus.reducedAccuracy,
+            error: 'برای مسیریابی دقیق، Precise location را برای راهی فعال کنید.',
+          );
+          return;
+        }
+      }
+
       _setStatus(LocationAccessStatus.granted);
       await _loadFreshPosition();
       _startLiveUpdates();
     } catch (_) {
-      state = null;
+      if (!hasFreshUsableFix) {
+        state = null;
+      }
       _setError('موقعیت فعلی هنوز در دسترس نیست.');
     }
   }
 
   Future<void> _loadFreshPosition() async {
-    try {
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: _currentLocationSettings,
-      );
+    Position? position;
 
-      state = LatLng(position.latitude, position.longitude);
-      _setStatus(LocationAccessStatus.granted);
+    try {
+      position = await Geolocator.getCurrentPosition(
+        locationSettings: _primaryCurrentLocationSettings,
+      );
     } catch (_) {
-      // Deliberately do not fall back to getLastKnownPosition().
-      // A stale fix must never become the origin of a new route.
+      try {
+        position = await Geolocator.getCurrentPosition(
+          locationSettings: _fallbackCurrentLocationSettings,
+        );
+      } catch (_) {
+        position = null;
+      }
+    }
+
+    if (position != null && _acceptPosition(position)) {
+      return;
+    }
+
+    if (!hasFreshUsableFix) {
       state = null;
-      _setError('موقعیت فعلی هنوز در دسترس نیست.');
+    }
+
+    if (position != null && position.accuracy.isFinite) {
+      _setError(
+        'دقت موقعیت فعلی کافی نیست (' +
+            position.accuracy.round().toString() +
+            ' متر). چند لحظه در فضای باز بمانید و دوباره تلاش کنید.',
+      );
+    } else {
+      _setError('موقعیت دقیق فعلی هنوز در دسترس نیست.');
     }
   }
 
@@ -134,13 +215,75 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       locationSettings: _streamLocationSettings,
     ).listen(
       (position) {
-        state = LatLng(position.latitude, position.longitude);
-        _setStatus(LocationAccessStatus.granted);
+        if (_acceptPosition(position)) {
+          return;
+        }
+
+        if (!hasFreshUsableFix) {
+          state = null;
+        }
       },
       onError: (_) {
+        if (!hasFreshUsableFix) {
+          state = null;
+        }
         _setError('جریان زنده موقعیت مکانی قطع شد.');
       },
     );
+  }
+
+  bool _acceptPosition(Position position) {
+    if (!_isUsable(position)) {
+      return false;
+    }
+
+    _lastAcceptedPosition = position;
+    state = LatLng(position.latitude, position.longitude);
+    _setStatus(LocationAccessStatus.granted);
+    return true;
+  }
+
+  bool _isUsable(Position position) {
+    if (position.isMocked) return false;
+
+    if (!position.latitude.isFinite ||
+        !position.longitude.isFinite ||
+        position.latitude < -90 ||
+        position.latitude > 90 ||
+        position.longitude < -180 ||
+        position.longitude > 180) {
+      return false;
+    }
+
+    if (!position.accuracy.isFinite ||
+        position.accuracy <= 0 ||
+        position.accuracy > _maxAcceptedAccuracyMeters) {
+      return false;
+    }
+
+    final age = DateTime.now().toUtc().difference(
+          position.timestamp.toUtc(),
+        );
+
+    if (age.isNegative) {
+      return age.abs() <= _maxFixAge;
+    }
+
+    return age <= _maxFixAge;
+  }
+
+  Future<LatLng?> acquireFreshLocation() async {
+    if (hasFreshUsableFix) {
+      return state;
+    }
+
+    await _checkAndRequestPermission();
+
+    if (!hasFreshUsableFix) {
+      return null;
+    }
+
+    return state;
   }
 
   void markWentToSettings() {
@@ -148,8 +291,6 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   }
 
   Future<void> onAppResumed() async {
-    if (!_wentToSettings) return;
-
     _wentToSettings = false;
     await _checkAndRequestPermission(requestIfDenied: false);
   }
