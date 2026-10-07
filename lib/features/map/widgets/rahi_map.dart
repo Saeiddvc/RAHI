@@ -6,7 +6,6 @@ import 'package:latlong2/latlong.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../data/models/map_route.dart';
 import '../../../providers/location_provider.dart';
-import '../../../providers/map_service_provider.dart';
 
 class RahiMap extends ConsumerWidget {
   final MapController mapController;
@@ -29,12 +28,6 @@ class RahiMap extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userLocation = ref.watch(locationProvider);
-    final service = ref.watch(mapServiceProvider);
-    final tileUrl = _buildTileUrl(
-      service.tileUrlTemplate,
-      service.tileUrlParams,
-    );
-
     return FlutterMap(
       mapController: mapController,
       options: MapOptions(
@@ -48,8 +41,7 @@ class RahiMap extends ConsumerWidget {
       ),
       children: [
         TileLayer(
-          urlTemplate:
-              tileUrl.isEmpty ? AppConstants.osmTileUrl : tileUrl,
+          urlTemplate: AppConstants.osmTileUrl,
           userAgentPackageName: AppConstants.userAgent,
           maxZoom: 19,
         ),
@@ -125,23 +117,7 @@ class RahiMap extends ConsumerWidget {
     return polylines;
   }
 
-  String _buildTileUrl(
-    String template,
-    Map<String, String> params,
-  ) {
-    if (params.isEmpty) return template;
 
-    final encoded = params.entries
-        .map(
-          (entry) =>
-              '${Uri.encodeQueryComponent(entry.key)}='
-              '${Uri.encodeQueryComponent(entry.value)}',
-        )
-        .join('&');
-
-    return '$template${template.contains('?') ? '&' : '?'}$encoded';
-  }
-}
 
 class _UserMarker extends StatelessWidget {
   const _UserMarker();
