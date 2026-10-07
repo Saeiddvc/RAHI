@@ -14,10 +14,7 @@ class SettingsScreen extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final settings = ref.watch(settingsProvider);
     final settingsNotifier = ref.read(settingsProvider.notifier);
-    final providerKind = ref.watch(selectedMapProviderProvider);
-    final providerNotifier =
-        ref.read(selectedMapProviderProvider.notifier);
-    final mapService = ref.watch(mapServiceProvider);
+    final routingService = ref.watch(routingServiceProvider);
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.settings)),
@@ -86,12 +83,12 @@ class SettingsScreen extends ConsumerWidget {
                 for (final type in RouteType.values)
                   _ChoiceTile(
                     title: _routeTypeLabel(l10n, type),
-                    subtitle: mapService.supportedRouteTypes.contains(type)
+                    subtitle: routingService.supportedRouteTypes.contains(type)
                         ? null
                         : l10n.comingSoon,
                     selected: settings.routeType == type,
                     enabled:
-                        mapService.supportedRouteTypes.contains(type),
+                        routingService.supportedRouteTypes.contains(type),
                     onTap: () => settingsNotifier.setRouteType(type),
                   ),
               ],
@@ -113,35 +110,17 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 20),
           _SectionTitle(title: l10n.mapProvider),
-          _Card(
-            child: Column(
-              children: [
-                _ChoiceTile(
-                  title: l10n.neshan,
-                  selected: providerKind == MapProviderKind.neshan,
-                  onTap: () {
-                    providerNotifier.state = MapProviderKind.neshan;
-                    if (!_neshanSupportedRouteTypes.contains(
-                      settings.routeType,
-                    )) {
-                      settingsNotifier.setRouteType(RouteType.car);
-                    }
-                  },
-                ),
-                _ChoiceTile(
-                  title: l10n.parsimap,
-                  subtitle: l10n.comingSoon,
-                  selected: providerKind == MapProviderKind.parsimap,
-                  enabled: false,
-                  onTap: () {},
-                ),
-              ],
+          const _Card(
+            child: ListTile(
+              leading: Icon(Icons.layers_outlined),
+              title: Text('Parsimap'),
+              subtitle: Text('جستجو و داده مکانی • مسیریابی با سرویس مکمل • نقشه با fallback رایگان'),
             ),
           ),
           const SizedBox(height: 32),
           Center(
             child: Text(
-              '${l10n.appName} — ${l10n.version} 1.0.0',
+              '${l10n.appName} — ${l10n.version} 0.9.0 RC',
               style: TextStyle(
                 color: Theme.of(context)
                     .colorScheme
