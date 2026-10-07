@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../constants/app_constants.dart';
+import '../constants/secrets.dart';
 import '../services/parsimap_tile_resolver.dart';
 import '../utils/tile_url_composer.dart';
 
