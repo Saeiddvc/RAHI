@@ -72,7 +72,6 @@ class RahiMap extends ConsumerWidget {
       ),
       children: [
         TileLayer(
-          key: ValueKey(tileUrl),
           urlTemplate: tileUrl,
           userAgentPackageName: AppConstants.userAgent,
           maxZoom: 19,

@@ -91,7 +91,19 @@ class TileDiagnostics {
     required String activeUrlTemplate,
     required bool usingFallback,
   }) async {
-    final styleOutcome = await _probeParsimapStyle();
+    // Start independent probes together so a bad host does not make the
+    // debug overlay wait through several sequential timeout windows.
+    final styleFuture = _probeParsimapStyle();
+    final osmFuture = _probeTile(
+      'osm',
+      AppConstants.osmTileUrl,
+    );
+    final activeFuture = _probeTile(
+      'active',
+      activeUrlTemplate,
+    );
+
+    final styleOutcome = await styleFuture;
 
     String? resolvedParsimapTemplate;
     if (styleOutcome.responseData != null) {
@@ -111,28 +123,24 @@ class TileDiagnostics {
             },
           );
 
-    final parsimapTile = parsimapUrl.isEmpty
-        ? const TileProbeResult(
-            label: 'parsi tile',
-            host: '-',
-            dnsOk: false,
-            statusCode: null,
-            contentType: null,
-            byteLength: null,
-            elapsedMs: 0,
-            error: 'no template from style',
+    final parsimapFuture = parsimapUrl.isEmpty
+        ? Future<TileProbeResult>.value(
+            const TileProbeResult(
+              label: 'parsi tile',
+              host: '-',
+              dnsOk: false,
+              statusCode: null,
+              contentType: null,
+              byteLength: null,
+              elapsedMs: 0,
+              error: 'no template from style',
+            ),
           )
-        : await _probeTile('parsi tile', parsimapUrl);
+        : _probeTile('parsi tile', parsimapUrl);
 
-    final osmTile = await _probeTile(
-      'osm',
-      AppConstants.osmTileUrl,
-    );
-
-    final activeTile = await _probeTile(
-      'active',
-      activeUrlTemplate,
-    );
+    final osmTile = await osmFuture;
+    final activeTile = await activeFuture;
+    final parsimapTile = await parsimapFuture;
 
     return TileDiagnosticsReport(
       usingFallback: usingFallback,
