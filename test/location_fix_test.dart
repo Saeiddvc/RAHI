@@ -40,6 +40,17 @@ void main() {
       expect(fix.isAccurate(), isTrue);
     });
 
+    test('80 meter accuracy is rejected for routing', () {
+      final fix = LocationFix(
+        location: const LatLng(35.7, 51.4),
+        timestamp: DateTime.now().toUtc(),
+        accuracyMeters: 80,
+        source: LocationSource.gps,
+      );
+
+      expect(fix.isAccurate(), isFalse);
+    });
+
     test('200 meter accuracy is rejected', () {
       final fix = LocationFix(
         location: const LatLng(35.7, 51.4),

@@ -36,7 +36,7 @@ class LocationFix {
     return age <= maxAge;
   }
 
-  bool isAccurate({double maxMeters = 150}) {
+  bool isAccurate({double maxMeters = 50}) {
     return accuracyMeters > 0 && accuracyMeters <= maxMeters;
   }
 

@@ -38,6 +38,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
     AppConstants.defaultLng,
   );
   bool _locating = false;
+  bool _hasAutoCentered = false;
 
   @override
   void initState() {
@@ -68,6 +69,25 @@ class _MapScreenState extends ConsumerState<MapScreen>
 
     final center = userLocation ?? _mapCenter;
     final selectedRoute = routing.selectedRoute;
+
+    ref.listen<LocationFix?>(locationFixProvider, (previous, next) {
+      final notifier = ref.read(locationProvider.notifier);
+      if (_hasAutoCentered || !notifier.isFixUsableForRoute(next)) {
+        return;
+      }
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _hasAutoCentered || next == null) return;
+
+        try {
+          _mapController.move(next.location, 15);
+          _mapCenter = next.location;
+          _hasAutoCentered = true;
+        } catch (_) {
+          // The controller may not yet be attached on the first frame.
+        }
+      });
+    });
 
     return Scaffold(
       body: Stack(
@@ -102,8 +122,16 @@ class _MapScreenState extends ConsumerState<MapScreen>
                     actionLabel: l10n.openLocationSettings,
                     onAction: _openLocationSettings,
                   ),
+                if (accessStatus == LocationAccessStatus.reducedAccuracy)
+                  _PermissionBanner(
+                    icon: Icons.gps_off_rounded,
+                    message: l10n.preciseLocationRequired,
+                    actionLabel: l10n.openSettings,
+                    onAction: _openAppSettings,
+                  ),
                 if (accessStatus == LocationAccessStatus.deniedForever ||
-                    accessStatus == LocationAccessStatus.serviceDisabled)
+                    accessStatus == LocationAccessStatus.serviceDisabled ||
+                    accessStatus == LocationAccessStatus.reducedAccuracy)
                   const SizedBox(height: 8),
                 Row(
                   children: [
@@ -188,27 +216,24 @@ class _MapScreenState extends ConsumerState<MapScreen>
     if (_locating) return;
 
     setState(() => _locating = true);
-    await ref.read(locationProvider.notifier).refresh();
 
-    if (!mounted) return;
+    try {
+      final notifier = ref.read(locationProvider.notifier);
+      final fix = await notifier.acquireUsableRouteFix();
 
-    final location = ref.read(locationProvider);
-    if (location != null) {
-      _mapController.move(location, 15);
-      _mapCenter = location;
-    } else {
-      final accessStatus = ref.read(locationAccessProvider);
-      if (accessStatus != LocationAccessStatus.deniedForever &&
-          accessStatus != LocationAccessStatus.serviceDisabled) {
-        final l10n = AppLocalizations.of(context)!;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l10n.noLocationAccess)),
-        );
+      if (!mounted) return;
+
+      if (fix != null && notifier.isFixUsableForRoute(fix)) {
+        _mapController.move(fix.location, 15);
+        _mapCenter = fix.location;
+        _hasAutoCentered = true;
+      } else {
+        _showSnack(AppLocalizations.of(context)!.preciseLocationRequired);
       }
-    }
-
-    if (mounted) {
-      setState(() => _locating = false);
+    } finally {
+      if (mounted) {
+        setState(() => _locating = false);
+      }
     }
   }
 
@@ -255,28 +280,20 @@ class _MapScreenState extends ConsumerState<MapScreen>
     final locationNotifier = ref.read(locationProvider.notifier);
     var fix = ref.read(locationFixProvider);
 
-    // Give GPS one explicit chance to replace a stale/last-known fix before
-    // asking the user whether to continue.
     if (!locationNotifier.isFixUsableForRoute(fix)) {
-      await locationNotifier.refresh();
+      fix = await locationNotifier.acquireUsableRouteFix();
       if (!mounted) return;
-      fix = ref.read(locationFixProvider);
-    }
-
-    if (fix == null) {
-      _showSnack(AppLocalizations.of(context)!.noLocationAccess);
-      return;
     }
 
     if (!locationNotifier.isFixUsableForRoute(fix)) {
-      final proceed = await _confirmStaleLocation(fix);
-      if (!mounted || proceed != true) return;
+      _showSnack(AppLocalizations.of(context)!.preciseLocationRequired);
+      return;
     }
 
     final settings = ref.read(settingsProvider);
 
     await ref.read(routingProvider.notifier).calculateRoute(
-          origin: fix.location,
+          origin: fix!.location,
           destination: place,
           type: settings.routeType,
         );
@@ -289,54 +306,6 @@ class _MapScreenState extends ConsumerState<MapScreen>
     if (selectedRoute != null) {
       _zoomToRoute(selectedRoute.points);
     }
-  }
-
-  Future<bool?> _confirmStaleLocation(LocationFix fix) {
-    final l10n = AppLocalizations.of(context)!;
-    final ageText = _formatLocationAge(fix.ageSeconds, l10n);
-
-    return showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          icon: const Icon(Icons.location_searching, size: 32),
-          title: Text(l10n.staleLocationTitle),
-          content: Text(
-            l10n.staleLocationMessage(
-              ageText,
-              fix.accuracyMeters.round(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(l10n.cancel),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: Text(l10n.staleLocationProceed),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  String _formatLocationAge(
-    int seconds,
-    AppLocalizations l10n,
-  ) {
-    if (seconds < 60) {
-      return '$seconds ${l10n.secondsAgo}';
-    }
-
-    final minutes = seconds ~/ 60;
-    if (minutes < 60) {
-      return '$minutes ${l10n.minutesAgo}';
-    }
-
-    final hours = minutes ~/ 60;
-    return '$hours ${l10n.hoursAgo}';
   }
 
   void _showSnack(String message) {
@@ -403,14 +372,22 @@ class _MapScreenState extends ConsumerState<MapScreen>
 
     final routing = ref.read(routingProvider);
     final locationNotifier = ref.read(locationProvider.notifier);
-    final fix = ref.read(locationFixProvider);
-    final initialLocation =
-        locationNotifier.isFixUsableForRoute(fix) ? fix!.location : null;
+    var fix = ref.read(locationFixProvider);
+
+    if (!locationNotifier.isFixUsableForRoute(fix)) {
+      fix = await locationNotifier.acquireUsableRouteFix();
+      if (!mounted) return;
+    }
+
+    if (!locationNotifier.isFixUsableForRoute(fix)) {
+      _showSnack(AppLocalizations.of(context)!.preciseLocationRequired);
+      return;
+    }
 
     await ref.read(navigationProvider.notifier).start(
           route,
           destination: routing.destination,
-          initialLocation: initialLocation,
+          initialLocation: fix!.location,
         );
 
     if (!mounted) return;

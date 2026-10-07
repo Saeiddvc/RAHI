@@ -53,7 +53,8 @@ class _NavigationScreenState
             .updateUserLocationFromFix(next),
       );
 
-      if (!next.isGps) return;
+      final locationNotifier = ref.read(locationProvider.notifier);
+      if (!locationNotifier.isFixUsableForRoute(next)) return;
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;

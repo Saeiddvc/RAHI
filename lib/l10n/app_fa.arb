@@ -88,5 +88,6 @@
   "searchConnectionHint": "اتصال به سرویس برقرار نشد. اتصال اینترنت را بررسی و دوباره تلاش کنید",
   "providerDegraded": "اتصال کند",
   "providerDown": "سرویس در دسترس نیست",
-  "checkingConnection": "در حال بررسی اتصال..."
+  "checkingConnection": "در حال بررسی اتصال...",
+  "preciseLocationRequired": "موقعیت دقیق هنوز در دسترس نیست. برای مسیریابی، Precise location را فعال کنید و چند لحظه در فضای باز یا کنار پنجره صبر کنید."
 }

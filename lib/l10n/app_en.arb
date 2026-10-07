@@ -88,5 +88,6 @@
   "searchConnectionHint": "Could not connect to the service. Check your internet connection and try again",
   "providerDegraded": "Slow connection",
   "providerDown": "Service unavailable",
-  "checkingConnection": "Checking connection..."
+  "checkingConnection": "Checking connection...",
+  "preciseLocationRequired": "Precise location is not available yet. Enable Precise location and wait briefly outdoors or near a window before routing."
 }
