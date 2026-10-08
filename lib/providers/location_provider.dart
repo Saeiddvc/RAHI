@@ -200,9 +200,8 @@ class LocationNotifier extends StateNotifier<LatLng?> {
 
     if (position != null && position.accuracy.isFinite) {
       _setError(
-        'دقت موقعیت فعلی کافی نیست (' +
-            position.accuracy.round().toString() +
-            ' متر). چند لحظه در فضای باز بمانید و دوباره تلاش کنید.',
+        'دقت موقعیت فعلی کافی نیست (${position.accuracy.round()} متر). '
+        'چند لحظه در فضای باز بمانید و دوباره تلاش کنید.',
       );
     } else {
       _setError('موقعیت دقیق فعلی هنوز در دسترس نیست.');
@@ -291,7 +290,10 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   }
 
   Future<void> onAppResumed() async {
-    _wentToSettings = false;
+    if (_wentToSettings) {
+      _wentToSettings = false;
+    }
+
     await _checkAndRequestPermission(requestIfDenied: false);
   }
 
