@@ -20,6 +20,29 @@ final locationAccessProvider = StateProvider<LocationAccessStatus>(
 
 final locationErrorProvider = StateProvider<String?>((ref) => null);
 
+class LocationMotion {
+  final LatLng location;
+  final double headingDegrees;
+  final double speedMetersPerSecond;
+  final DateTime timestamp;
+
+  const LocationMotion({
+    required this.location,
+    required this.headingDegrees,
+    required this.speedMetersPerSecond,
+    required this.timestamp,
+  });
+
+  bool get hasUsableHeading =>
+      headingDegrees.isFinite &&
+      headingDegrees >= 0 &&
+      headingDegrees < 360 &&
+      speedMetersPerSecond.isFinite &&
+      speedMetersPerSecond >= 1.5;
+}
+
+final locationMotionProvider = StateProvider<LocationMotion?>((ref) => null);
+
 final locationProvider =
     StateNotifierProvider<LocationNotifier, LatLng?>((ref) {
   return LocationNotifier(ref);
@@ -96,6 +119,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
         await _positionSubscription?.cancel();
         _positionSubscription = null;
         _lastAcceptedPosition = null;
+        _ref.read(locationMotionProvider.notifier).state = null;
         state = null;
         _setStatus(
           LocationAccessStatus.serviceDisabled,
@@ -114,6 +138,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
         await _positionSubscription?.cancel();
         _positionSubscription = null;
         _lastAcceptedPosition = null;
+        _ref.read(locationMotionProvider.notifier).state = null;
         state = null;
         _setStatus(
           LocationAccessStatus.deniedForever,
@@ -126,6 +151,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
         await _positionSubscription?.cancel();
         _positionSubscription = null;
         _lastAcceptedPosition = null;
+        _ref.read(locationMotionProvider.notifier).state = null;
         state = null;
         _setStatus(
           LocationAccessStatus.denied,
@@ -139,6 +165,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
         await _positionSubscription?.cancel();
         _positionSubscription = null;
         _lastAcceptedPosition = null;
+        _ref.read(locationMotionProvider.notifier).state = null;
         state = null;
         _setStatus(
           LocationAccessStatus.denied,
@@ -237,7 +264,14 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     }
 
     _lastAcceptedPosition = position;
-    state = LatLng(position.latitude, position.longitude);
+    final location = LatLng(position.latitude, position.longitude);
+    state = location;
+    _ref.read(locationMotionProvider.notifier).state = LocationMotion(
+      location: location,
+      headingDegrees: position.heading,
+      speedMetersPerSecond: position.speed,
+      timestamp: position.timestamp.toUtc(),
+    );
     _setStatus(LocationAccessStatus.granted);
     return true;
   }
