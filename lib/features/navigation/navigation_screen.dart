@@ -41,18 +41,28 @@ class _NavigationScreenState
     final userLocation = ref.watch(locationProvider);
     final route = navigation.route;
 
-    ref.listen<LatLng?>(locationProvider, (previous, next) {
+    ref.listen<LocationMotion?>(locationMotionProvider, (previous, next) {
       if (next == null) return;
 
       unawaited(
-        ref.read(navigationProvider.notifier).updateUserLocation(next),
+        ref
+            .read(navigationProvider.notifier)
+            .updateUserLocation(next.location),
       );
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
 
         try {
-          _mapController.move(next, 16);
+          if (next.hasUsableHeading) {
+            _mapController.moveAndRotate(
+              next.location,
+              17,
+              next.headingDegrees,
+            );
+          } else {
+            _mapController.move(next.location, 16);
+          }
         } catch (_) {
           // The map controller may not yet be attached on the first frame.
         }
