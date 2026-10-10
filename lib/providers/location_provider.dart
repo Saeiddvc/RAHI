@@ -56,12 +56,20 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   final Ref _ref;
   StreamSubscription<Position>? _positionSubscription;
   Position? _lastAcceptedPosition;
+  Position? _bestObservedPosition;
   bool _wentToSettings = false;
 
   static const Duration _maxFixAge = Duration(seconds: 20);
-  static const double _maxAcceptedAccuracyMeters = 150;
+  static const Duration _acquisitionWindow = Duration(seconds: 20);
 
-  static LocationSettings get _primaryCurrentLocationSettings {
+  // A fused/network fix is accepted only when it is already very accurate.
+  // A wider radius is allowed only when Android reports real GNSS satellite
+  // participation in the fix.
+  static const double _maxFusedAccuracyMeters = 60;
+  static const double _maxSatelliteBackedAccuracyMeters = 120;
+  static const int _minimumSatellitesUsed = 4;
+
+  static LocationSettings get _fusedCurrentLocationSettings {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       return AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
@@ -78,24 +86,23 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     );
   }
 
-  static LocationSettings get _gpsFallbackLocationSettings {
+  static LocationSettings get _gpsAcquisitionSettings {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       return AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 0,
         forceLocationManager: true,
-        timeLimit: const Duration(seconds: 18),
+        intervalDuration: const Duration(seconds: 1),
       );
     }
 
     return const LocationSettings(
       accuracy: LocationAccuracy.bestForNavigation,
       distanceFilter: 0,
-      timeLimit: Duration(seconds: 18),
     );
   }
 
-  static LocationSettings get _streamLocationSettings {
+  static LocationSettings get _liveLocationSettings {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       return AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
@@ -113,7 +120,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
 
   bool get hasFreshUsableFix {
     final position = _lastAcceptedPosition;
-    return position != null && _isUsable(position);
+    return position != null && _isRouteUsable(position);
   }
 
   Future<void> _init() async {
@@ -126,11 +133,8 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        await _positionSubscription?.cancel();
-        _positionSubscription = null;
-        _lastAcceptedPosition = null;
-        _ref.read(locationMotionProvider.notifier).state = null;
-        state = null;
+        await _stopLiveUpdates();
+        _clearAcceptedFix();
         _setStatus(
           LocationAccessStatus.serviceDisabled,
           error: 'سرویس موقعیت مکانی خاموش است.',
@@ -145,11 +149,8 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       }
 
       if (permission == LocationPermission.deniedForever) {
-        await _positionSubscription?.cancel();
-        _positionSubscription = null;
-        _lastAcceptedPosition = null;
-        _ref.read(locationMotionProvider.notifier).state = null;
-        state = null;
+        await _stopLiveUpdates();
+        _clearAcceptedFix();
         _setStatus(
           LocationAccessStatus.deniedForever,
           error: 'مجوز موقعیت مکانی برای برنامه مسدود شده است.',
@@ -158,11 +159,8 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       }
 
       if (permission == LocationPermission.denied) {
-        await _positionSubscription?.cancel();
-        _positionSubscription = null;
-        _lastAcceptedPosition = null;
-        _ref.read(locationMotionProvider.notifier).state = null;
-        state = null;
+        await _stopLiveUpdates();
+        _clearAcceptedFix();
         _setStatus(
           LocationAccessStatus.denied,
           error: 'مجوز موقعیت مکانی داده نشد.',
@@ -172,11 +170,8 @@ class LocationNotifier extends StateNotifier<LatLng?> {
 
       if (permission != LocationPermission.whileInUse &&
           permission != LocationPermission.always) {
-        await _positionSubscription?.cancel();
-        _positionSubscription = null;
-        _lastAcceptedPosition = null;
-        _ref.read(locationMotionProvider.notifier).state = null;
-        state = null;
+        await _stopLiveUpdates();
+        _clearAcceptedFix();
         _setStatus(
           LocationAccessStatus.denied,
           error: 'مجوز موقعیت مکانی داده نشد.',
@@ -187,92 +182,106 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       if (!kIsWeb) {
         final accuracyStatus = await Geolocator.getLocationAccuracy();
         if (accuracyStatus == LocationAccuracyStatus.reduced) {
-          await _positionSubscription?.cancel();
-          _positionSubscription = null;
-          _lastAcceptedPosition = null;
-          _ref.read(locationMotionProvider.notifier).state = null;
-          state = null;
+          await _stopLiveUpdates();
+          _clearAcceptedFix();
           _setStatus(
             LocationAccessStatus.reducedAccuracy,
-            error: 'برای مسیریابی دقیق، Precise location را برای راهی فعال کنید.',
+            error:
+                'برای مسیریابی دقیق، Precise location را برای راهی فعال کنید.',
           );
           return;
         }
       }
 
       _setStatus(LocationAccessStatus.granted);
-      await _loadFreshPosition();
+      await _acquireBestFix();
       _startLiveUpdates();
     } catch (_) {
       if (!hasFreshUsableFix) {
-        state = null;
+        _clearAcceptedFix();
       }
       _setError('موقعیت فعلی هنوز در دسترس نیست.');
     }
   }
 
-  Future<void> _loadFreshPosition() async {
-    final candidates = <Position>[];
+  Future<void> _acquireBestFix() async {
+    _bestObservedPosition = null;
 
-    Future<bool> trySettings(LocationSettings settings) async {
-      try {
-        final position = await Geolocator.getCurrentPosition(
-          locationSettings: settings,
-        );
-        candidates.add(position);
-        return _acceptPosition(position);
-      } catch (_) {
-        return false;
+    final completer = Completer<void>();
+    StreamSubscription<Position>? gpsSubscription;
+    Timer? timer;
+
+    void finish() {
+      if (!completer.isCompleted) {
+        completer.complete();
       }
     }
 
-    // First prefer Android's fused provider. It can combine GNSS, Wi-Fi and
-    // network signals and is substantially more reliable when satellite
-    // visibility is poor.
-    if (await trySettings(_primaryCurrentLocationSettings)) {
-      return;
-    }
-
-    // A poor fused fix must not block the GPS fallback. Previously a returned
-    // but inaccurate LocationManager fix could stop the fallback path entirely.
-    if (await trySettings(_gpsFallbackLocationSettings)) {
-      return;
-    }
-
-    if (!hasFreshUsableFix) {
-      state = null;
-      _ref.read(locationMotionProvider.notifier).state = null;
-    }
-
-    Position? bestCandidate;
-    for (final candidate in candidates) {
-      if (!candidate.accuracy.isFinite || candidate.accuracy <= 0) {
-        continue;
-      }
-      if (bestCandidate == null ||
-          candidate.accuracy < bestCandidate.accuracy) {
-        bestCandidate = candidate;
+    void consider(Position position) {
+      _recordBestObserved(position);
+      if (_acceptPosition(position)) {
+        finish();
       }
     }
 
-    if (bestCandidate != null) {
-      _setError(
-        'دقت موقعیت فعلی کافی نیست '
-        '(${bestCandidate.accuracy.round()} متر). '
-        'راهی هم موقعیت ترکیبی و هم GPS را امتحان کرد؛ '
-        'چند لحظه دوباره تلاش کنید.',
+    try {
+      // Start a real LocationManager/GNSS stream first. It is allowed to warm
+      // up for several seconds so the first coarse fix does not prematurely
+      // end acquisition.
+      gpsSubscription = Geolocator.getPositionStream(
+        locationSettings: _gpsAcquisitionSettings,
+      ).listen(
+        consider,
+        onError: (_) {},
       );
-    } else {
-      _setError('موقعیت دقیق فعلی هنوز در دسترس نیست.');
+
+      // In parallel, request Android's fused position. Fused location combines
+      // GNSS with Wi-Fi/cell/sensor signals and can be excellent when already
+      // well calibrated.
+      unawaited(
+        Geolocator.getCurrentPosition(
+          locationSettings: _fusedCurrentLocationSettings,
+        ).then(consider).catchError((Object _) {}),
+      );
+
+      timer = Timer(_acquisitionWindow, finish);
+      await completer.future;
+    } finally {
+      timer?.cancel();
+      await gpsSubscription?.cancel();
     }
+
+    if (hasFreshUsableFix) {
+      _setError(null);
+      return;
+    }
+
+    _clearAcceptedFix();
+
+    final best = _bestObservedPosition;
+    if (best == null) {
+      _setError('موقعیت دقیق فعلی هنوز در دسترس نیست.');
+      return;
+    }
+
+    final satellites = _satellitesUsed(best);
+    final satelliteText =
+        satellites == null ? 'نامشخص' : satellites.toString();
+
+    _setError(
+      'دقت موقعیت فعلی کافی نیست '
+      '(${best.accuracy.round()} متر، ماهواره‌های استفاده‌شده: '
+      '$satelliteText). چند لحظه در فضای باز بمانید و دوباره تلاش کنید.',
+    );
   }
 
   void _startLiveUpdates() {
     _positionSubscription?.cancel();
     _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: _streamLocationSettings,
+      locationSettings: _liveLocationSettings,
     ).listen(
       (position) {
+        _recordBestObserved(position);
         if (_acceptPosition(position)) {
           return;
         }
@@ -290,8 +299,41 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     );
   }
 
+  Future<void> _stopLiveUpdates() async {
+    await _positionSubscription?.cancel();
+    _positionSubscription = null;
+  }
+
+  void _recordBestObserved(Position position) {
+    if (!_isBasicValid(position)) return;
+
+    final current = _bestObservedPosition;
+    if (current == null || _candidateScore(position) < _candidateScore(current)) {
+      _bestObservedPosition = position;
+    }
+  }
+
+  double _candidateScore(Position position) {
+    var score = position.accuracy;
+
+    final satellites = _satellitesUsed(position);
+    if (satellites != null && satellites > 0) {
+      score -= satellites.clamp(0, 12) * 2.0;
+    }
+
+    final ageSeconds = DateTime.now()
+        .toUtc()
+        .difference(position.timestamp.toUtc())
+        .inMilliseconds
+        .abs() /
+        1000.0;
+    score += ageSeconds * 0.5;
+
+    return score;
+  }
+
   bool _acceptPosition(Position position) {
-    if (!_isUsable(position)) {
+    if (!_isRouteUsable(position)) {
       return false;
     }
 
@@ -308,7 +350,20 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     return true;
   }
 
-  bool _isUsable(Position position) {
+  bool _isRouteUsable(Position position) {
+    if (!_isBasicValid(position)) return false;
+
+    if (position.accuracy <= _maxFusedAccuracyMeters) {
+      return true;
+    }
+
+    final satellites = _satellitesUsed(position);
+    return satellites != null &&
+        satellites >= _minimumSatellitesUsed &&
+        position.accuracy <= _maxSatelliteBackedAccuracyMeters;
+  }
+
+  bool _isBasicValid(Position position) {
     if (position.isMocked) return false;
 
     if (!position.latitude.isFinite ||
@@ -320,9 +375,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       return false;
     }
 
-    if (!position.accuracy.isFinite ||
-        position.accuracy <= 0 ||
-        position.accuracy > _maxAcceptedAccuracyMeters) {
+    if (!position.accuracy.isFinite || position.accuracy <= 0) {
       return false;
     }
 
@@ -335,6 +388,13 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     }
 
     return age <= _maxFixAge;
+  }
+
+  int? _satellitesUsed(Position position) {
+    if (position is AndroidPosition) {
+      return position.satellitesUsedInFix;
+    }
+    return null;
   }
 
   Future<LatLng?> acquireFreshLocation() async {
@@ -365,6 +425,12 @@ class LocationNotifier extends StateNotifier<LatLng?> {
 
   Future<void> refresh() async {
     await _checkAndRequestPermission();
+  }
+
+  void _clearAcceptedFix() {
+    _lastAcceptedPosition = null;
+    _ref.read(locationMotionProvider.notifier).state = null;
+    state = null;
   }
 
   void _setStatus(
