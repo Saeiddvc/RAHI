@@ -57,6 +57,8 @@ class LocationNotifier extends StateNotifier<LatLng?> {
 
   final Ref _ref;
   StreamSubscription<Position>? _positionSubscription;
+  Timer? _gnssRefineTimer;
+  bool _gnssRefineInFlight = false;
 
   DateTime? _lastAcceptedTimestamp;
   double? _lastAcceptedAccuracy;
@@ -68,7 +70,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   static const Duration _maxFixAge = Duration(seconds: 25);
   static const Duration _acquisitionWindow = Duration(seconds: 20);
   static const double _maxFusedAccuracyMeters = 50;
-  static const double _maxDegradedFusedAccuracyMeters = 180;
+  static const double _maxDegradedFusedAccuracyMeters = 500;
   static const double _maxNativeGnssAccuracyMeters = 120;
   static const int _minimumSatellitesUsed = 4;
 
@@ -192,6 +194,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       _setStatus(LocationAccessStatus.granted);
       await _acquireBestFix();
       _startLiveUpdates();
+      _startGnssRefinement();
     } catch (_) {
       if (!hasFreshUsableFix) {
         _clearAcceptedFix();
@@ -266,10 +269,16 @@ class LocationNotifier extends StateNotifier<LatLng?> {
         headingDegrees: degradedFused.heading,
         speedMetersPerSecond: degradedFused.speed,
       );
+      _lastGnssSnapshot ??= await GnssBridge.snapshot();
+      final satelliteText = _lastGnssSnapshot == null
+          ? ''
+          : ' | ماهواره: '
+              '${_lastGnssSnapshot!.satellitesUsedInFix}/'
+              '${_lastGnssSnapshot!.totalSatellites}';
       _setError(
-        'موقعیت اولیه با دقت تقریبی '
-        '${degradedFused.accuracy.round()} متر پذیرفته شد؛ '
-        'راهی با دریافت Fix بهتر آن را اصلاح می‌کند.',
+        'موقعیت اولیه تقریبی است '
+        '(${degradedFused.accuracy.round()} متر$satelliteText). '
+        'مسیریابی متوقف نمی‌شود و راهی در پس‌زمینه Fix دقیق‌تر را دنبال می‌کند.',
       );
       return;
     }
@@ -306,6 +315,62 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   Future<void> _stopLiveUpdates() async {
     await _positionSubscription?.cancel();
     _positionSubscription = null;
+    _gnssRefineTimer?.cancel();
+    _gnssRefineTimer = null;
+    _gnssRefineInFlight = false;
+  }
+
+  void _startGnssRefinement() {
+    _gnssRefineTimer?.cancel();
+
+    // Keep asking Android's native GPS provider for a satellite-backed fix
+    // while the accepted origin is degraded. The previous implementation
+    // stopped native GNSS after the initial acquisition window, so a poor
+    // startup fix could persist indefinitely.
+    unawaited(_refineWithNativeGnss());
+    _gnssRefineTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => unawaited(_refineWithNativeGnss()),
+    );
+  }
+
+  Future<void> _refineWithNativeGnss() async {
+    if (_gnssRefineInFlight) return;
+
+    final currentAccuracy = _lastAcceptedAccuracy;
+    if (currentAccuracy != null &&
+        currentAccuracy <= _maxFusedAccuracyMeters &&
+        hasFreshUsableFix) {
+      return;
+    }
+
+    _gnssRefineInFlight = true;
+    try {
+      final fix = await GnssBridge.acquireGpsFix(
+        timeout: const Duration(seconds: 8),
+      );
+      if (fix == null) {
+        _lastGnssSnapshot = await GnssBridge.snapshot();
+        return;
+      }
+
+      _recordBestNative(fix);
+      _lastGnssSnapshot = fix.snapshot;
+
+      final accepted = _acceptNativeFix(fix);
+      if (accepted && fix.accuracyMeters <= _maxFusedAccuracyMeters) {
+        _setError(null);
+      } else if (accepted) {
+        _setError(
+          'موقعیت ماهواره‌ای در حال بهبود است '
+          '(${fix.accuracyMeters.round()} متر | ماهواره: '
+          '${fix.snapshot.satellitesUsedInFix}/'
+          '${fix.snapshot.totalSatellites}).',
+        );
+      }
+    } finally {
+      _gnssRefineInFlight = false;
+    }
   }
 
   void _recordBestFused(Position position) {
@@ -369,6 +434,13 @@ class LocationNotifier extends StateNotifier<LatLng?> {
         fix.accuracyMeters <= _maxNativeGnssAccuracyMeters;
 
     if (!enoughSatellites || !accurateEnough) {
+      return false;
+    }
+
+    final currentAccuracy = _lastAcceptedAccuracy;
+    if (currentAccuracy != null &&
+        currentAccuracy <= _maxFusedAccuracyMeters &&
+        fix.accuracyMeters >= currentAccuracy) {
       return false;
     }
 
@@ -525,6 +597,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   @override
   void dispose() {
     _positionSubscription?.cancel();
+    _gnssRefineTimer?.cancel();
     super.dispose();
   }
 }
