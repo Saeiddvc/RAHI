@@ -59,9 +59,26 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   bool _wentToSettings = false;
 
   static const Duration _maxFixAge = Duration(seconds: 20);
-  static const double _maxAcceptedAccuracyMeters = 80;
+  static const double _maxAcceptedAccuracyMeters = 150;
 
   static LocationSettings get _primaryCurrentLocationSettings {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
+        forceLocationManager: false,
+        timeLimit: const Duration(seconds: 12),
+      );
+    }
+
+    return const LocationSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 0,
+      timeLimit: Duration(seconds: 12),
+    );
+  }
+
+  static LocationSettings get _gpsFallbackLocationSettings {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       return AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
@@ -78,19 +95,12 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     );
   }
 
-  static const LocationSettings _fallbackCurrentLocationSettings =
-      LocationSettings(
-    accuracy: LocationAccuracy.bestForNavigation,
-    distanceFilter: 0,
-    timeLimit: Duration(seconds: 12),
-  );
-
   static LocationSettings get _streamLocationSettings {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       return AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 0,
-        forceLocationManager: true,
+        forceLocationManager: false,
         intervalDuration: const Duration(seconds: 1),
       );
     }
@@ -180,6 +190,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
           await _positionSubscription?.cancel();
           _positionSubscription = null;
           _lastAcceptedPosition = null;
+          _ref.read(locationMotionProvider.notifier).state = null;
           state = null;
           _setStatus(
             LocationAccessStatus.reducedAccuracy,
@@ -201,34 +212,55 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   }
 
   Future<void> _loadFreshPosition() async {
-    Position? position;
+    final candidates = <Position>[];
 
-    try {
-      position = await Geolocator.getCurrentPosition(
-        locationSettings: _primaryCurrentLocationSettings,
-      );
-    } catch (_) {
+    Future<bool> trySettings(LocationSettings settings) async {
       try {
-        position = await Geolocator.getCurrentPosition(
-          locationSettings: _fallbackCurrentLocationSettings,
+        final position = await Geolocator.getCurrentPosition(
+          locationSettings: settings,
         );
+        candidates.add(position);
+        return _acceptPosition(position);
       } catch (_) {
-        position = null;
+        return false;
       }
     }
 
-    if (position != null && _acceptPosition(position)) {
+    // First prefer Android's fused provider. It can combine GNSS, Wi-Fi and
+    // network signals and is substantially more reliable when satellite
+    // visibility is poor.
+    if (await trySettings(_primaryCurrentLocationSettings)) {
+      return;
+    }
+
+    // A poor fused fix must not block the GPS fallback. Previously a returned
+    // but inaccurate LocationManager fix could stop the fallback path entirely.
+    if (await trySettings(_gpsFallbackLocationSettings)) {
       return;
     }
 
     if (!hasFreshUsableFix) {
       state = null;
+      _ref.read(locationMotionProvider.notifier).state = null;
     }
 
-    if (position != null && position.accuracy.isFinite) {
+    Position? bestCandidate;
+    for (final candidate in candidates) {
+      if (!candidate.accuracy.isFinite || candidate.accuracy <= 0) {
+        continue;
+      }
+      if (bestCandidate == null ||
+          candidate.accuracy < bestCandidate.accuracy) {
+        bestCandidate = candidate;
+      }
+    }
+
+    if (bestCandidate != null) {
       _setError(
-        'دقت موقعیت فعلی کافی نیست (${position.accuracy.round()} متر). '
-        'چند لحظه در فضای باز بمانید و دوباره تلاش کنید.',
+        'دقت موقعیت فعلی کافی نیست '
+        '(${bestCandidate.accuracy.round()} متر). '
+        'راهی هم موقعیت ترکیبی و هم GPS را امتحان کرد؛ '
+        'چند لحظه دوباره تلاش کنید.',
       );
     } else {
       _setError('موقعیت دقیق فعلی هنوز در دسترس نیست.');
