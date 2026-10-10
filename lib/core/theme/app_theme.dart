@@ -35,7 +35,9 @@ class AppTheme {
       colorScheme: colorScheme,
       scaffoldBackgroundColor:
           isDark ? AppColors.darkBackground : AppColors.lightBackground,
-      fontFamily: fontFamily,
+      textTheme: base.textTheme.apply(fontFamily: fontFamily),
+      primaryTextTheme:
+          base.primaryTextTheme.apply(fontFamily: fontFamily),
       appBarTheme: AppBarTheme(
         elevation: 0,
         scrolledUnderElevation: 0.5,
