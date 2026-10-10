@@ -7,12 +7,15 @@ import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
-import '../../data/models/route_step.dart';
 import '../../l10n/app_localizations.dart';
 import '../../providers/location_provider.dart';
 import '../map/widgets/rahi_map.dart';
 import 'providers/navigation_provider.dart';
+import 'widgets/maneuver_banner.dart';
+import 'widgets/nav_bottom_card.dart';
 import 'widgets/remaining_steps_sheet.dart';
 
 class NavigationScreen extends ConsumerStatefulWidget {
@@ -23,10 +26,10 @@ class NavigationScreen extends ConsumerStatefulWidget {
       _NavigationScreenState();
 }
 
-class _NavigationScreenState
-    extends ConsumerState<NavigationScreen> {
+class _NavigationScreenState extends ConsumerState<NavigationScreen> {
   final MapController _mapController = MapController();
   bool _rerouteDialogOpen = false;
+  bool _followUser = true;
 
   @override
   void dispose() {
@@ -40,6 +43,7 @@ class _NavigationScreenState
     final navigation = ref.watch(navigationProvider);
     final userLocation = ref.watch(locationProvider);
     final route = navigation.route;
+    final locale = Localizations.localeOf(context).languageCode;
 
     ref.listen<LocationMotion?>(locationMotionProvider, (previous, next) {
       if (next == null) return;
@@ -49,6 +53,8 @@ class _NavigationScreenState
             .read(navigationProvider.notifier)
             .updateUserLocation(next.location),
       );
+
+      if (!_followUser) return;
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -116,6 +122,22 @@ class _NavigationScreenState
                 AppConstants.defaultLng,
               ));
 
+    final currentStep = navigation.currentStep;
+    final distanceText = Formatters.distance(
+      navigation.distanceToNextStepMeters,
+      locale,
+    );
+    final instructionText = currentStep?.instruction ?? '';
+    final remainingDistanceText = Formatters.distance(
+      navigation.remainingDistanceMeters,
+      locale,
+    );
+    final remainingDurationText = Formatters.duration(
+      navigation.remainingDurationSeconds,
+      locale,
+    );
+    final etaText = _computeEta(navigation.remainingDurationSeconds);
+
     return Scaffold(
       body: Stack(
         children: [
@@ -124,20 +146,19 @@ class _NavigationScreenState
             center: center,
             routes: [route],
             selectedRouteIndex: 0,
-            destination:
-                navigation.destination?.location ??
+            destination: navigation.destination?.location ??
                 (route.points.isNotEmpty ? route.points.last : null),
           ),
           Positioned(
             top: MediaQuery.paddingOf(context).top + 8,
-            left: 8,
-            right: 8,
+            left: 12,
+            right: 12,
             child: Column(
               children: [
-                _ManeuverBanner(
-                  step: navigation.currentStep,
-                  distance: navigation.distanceToNextStepMeters,
-                  locale: Localizations.localeOf(context).languageCode,
+                ManeuverBanner(
+                  step: currentStep,
+                  distanceText: distanceText,
+                  instructionText: instructionText,
                   arrived: navigation.arrived,
                 ),
                 if (navigation.voiceUnavailable) ...[
@@ -149,12 +170,12 @@ class _NavigationScreenState
           ),
           if (navigation.isRerouting)
             Positioned(
-              top: MediaQuery.paddingOf(context).top + 86,
+              top: MediaQuery.paddingOf(context).top + 112,
               left: 12,
               right: 12,
               child: Material(
                 elevation: 4,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
                 color: Theme.of(context).colorScheme.surface,
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -162,9 +183,7 @@ class _NavigationScreenState
                     children: [
                       const SizedBox.square(
                         dimension: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                        ),
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
                       ),
                       const SizedBox(width: 12),
                       Text(l10n.loading),
@@ -173,34 +192,96 @@ class _NavigationScreenState
                 ),
               ),
             ),
+          if (navigation.isOffRoute && !navigation.isRerouting)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 174,
+              child: _OffRouteBanner(
+                title: l10n.offRoute,
+                message: l10n.offRouteHint,
+              ),
+            ),
           if (!navigation.arrived && navigation.remainingSteps.isNotEmpty)
             PositionedDirectional(
               end: 16,
-              bottom: 210,
+              bottom: 194,
               child: FloatingActionButton.small(
                 heroTag: 'remaining_steps_fab',
+                backgroundColor: Colors.white,
+                foregroundColor: AppColors.primary,
+                elevation: 3,
                 onPressed: _openRemainingSteps,
                 tooltip: l10n.remainingSteps,
-                child: const Icon(Icons.list_alt),
+                child: const Icon(Icons.list_alt_rounded),
+              ),
+            ),
+          if (!navigation.arrived)
+            PositionedDirectional(
+              end: 16,
+              bottom: 252,
+              child: FloatingActionButton.small(
+                heroTag: 'follow_fab',
+                backgroundColor:
+                    _followUser ? AppColors.primary : Colors.white,
+                foregroundColor:
+                    _followUser ? Colors.white : AppColors.primary,
+                elevation: 3,
+                onPressed: () {
+                  setState(() => _followUser = !_followUser);
+
+                  if (_followUser && userLocation != null) {
+                    final motion = ref.read(locationMotionProvider);
+                    try {
+                      if (motion != null && motion.hasUsableHeading) {
+                        _mapController.moveAndRotate(
+                          userLocation,
+                          17,
+                          motion.headingDegrees,
+                        );
+                      } else {
+                        _mapController.move(userLocation, 16);
+                      }
+                    } catch (_) {
+                      // Map may not yet be attached.
+                    }
+                  }
+                },
+                tooltip: l10n.myLocation,
+                child: Icon(
+                  _followUser
+                      ? Icons.my_location_rounded
+                      : Icons.explore_outlined,
+                ),
               ),
             ),
           Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: _NavigationBottomCard(
-              remainingDistanceMeters:
-                  navigation.remainingDistanceMeters,
-              remainingDurationSeconds:
-                  navigation.remainingDurationSeconds,
-              isOffRoute:
-                  navigation.isOffRoute && !navigation.isRerouting,
-              onExit: _exitNavigation,
+            bottom: 12,
+            left: 12,
+            right: 12,
+            child: SafeArea(
+              top: false,
+              child: NavBottomCard(
+                remainingDistanceText: remainingDistanceText,
+                durationText: remainingDurationText,
+                etaText: etaText,
+                exitLabel: l10n.exitNavigation,
+                onExit: _exitNavigation,
+              ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  String _computeEta(int remainingSeconds) {
+    final arrival = DateTime.now().add(
+      Duration(seconds: remainingSeconds),
+    );
+    final hour = arrival.hour.toString().padLeft(2, '0');
+    final minute = arrival.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 
   Future<void> _showRerouteDialog() async {
@@ -226,13 +307,11 @@ class _NavigationScreenState
           content: Text(l10n.offRouteMessage),
           actions: [
             TextButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(false),
+              onPressed: () => Navigator.of(dialogContext).pop(false),
               child: Text(l10n.offRouteDismiss),
             ),
             FilledButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(true),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
               child: Text(l10n.offRouteReroute),
             ),
           ],
@@ -241,7 +320,6 @@ class _NavigationScreenState
     );
 
     _rerouteDialogOpen = false;
-
     if (!mounted) return;
 
     if (confirmed == true) {
@@ -262,7 +340,7 @@ class _NavigationScreenState
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
-          top: Radius.circular(20),
+          top: Radius.circular(AppTheme.radiusLarge),
         ),
       ),
       builder: (_) => RemainingStepsSheet(steps: steps),
@@ -282,126 +360,6 @@ class _NavigationScreenState
   }
 }
 
-class _ManeuverBanner extends StatelessWidget {
-  final RouteStep? step;
-  final double distance;
-  final String locale;
-  final bool arrived;
-
-  const _ManeuverBanner({
-    required this.step,
-    required this.distance,
-    required this.locale,
-    required this.arrived,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final colors = Theme.of(context).colorScheme;
-
-    if (arrived) {
-      return Material(
-        elevation: 6,
-        borderRadius: BorderRadius.circular(14),
-        color: colors.secondary,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.check_circle,
-                color: Colors.white,
-                size: 32,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  l10n.arrived,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (step == null) {
-      return const SizedBox.shrink();
-    }
-
-    return Material(
-      elevation: 6,
-      borderRadius: BorderRadius.circular(14),
-      color: colors.primary,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Icon(
-              _iconFor(step!.maneuver),
-              color: Colors.white,
-              size: 40,
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    Formatters.distance(distance, locale),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    step!.instruction,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  IconData _iconFor(ManeuverType maneuver) {
-    return switch (maneuver) {
-      ManeuverType.turnLeft => Icons.turn_left,
-      ManeuverType.turnRight => Icons.turn_right,
-      ManeuverType.turnSlightLeft => Icons.turn_slight_left,
-      ManeuverType.turnSlightRight => Icons.turn_slight_right,
-      ManeuverType.turnSharpLeft => Icons.turn_sharp_left,
-      ManeuverType.turnSharpRight => Icons.turn_sharp_right,
-      ManeuverType.uTurn => Icons.u_turn_left,
-      ManeuverType.straight => Icons.straight,
-      ManeuverType.roundabout => Icons.roundabout_left,
-      ManeuverType.merge => Icons.merge,
-      ManeuverType.fork => Icons.fork_left,
-      ManeuverType.onRamp => Icons.ramp_right,
-      ManeuverType.offRamp => Icons.ramp_left,
-      ManeuverType.arrive => Icons.flag,
-      ManeuverType.depart => Icons.navigation,
-      ManeuverType.unknown => Icons.navigation_outlined,
-    };
-  }
-}
-
 class _VoiceWarning extends StatelessWidget {
   final String message;
 
@@ -411,7 +369,7 @@ class _VoiceWarning extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       elevation: 3,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
       color: Theme.of(context).colorScheme.errorContainer,
       child: Padding(
         padding: const EdgeInsets.symmetric(
@@ -440,175 +398,60 @@ class _VoiceWarning extends StatelessWidget {
   }
 }
 
-class _NavigationBottomCard extends StatelessWidget {
-  final double remainingDistanceMeters;
-  final int remainingDurationSeconds;
-  final bool isOffRoute;
-  final VoidCallback onExit;
+class _OffRouteBanner extends StatelessWidget {
+  final String title;
+  final String message;
 
-  const _NavigationBottomCard({
-    required this.remainingDistanceMeters,
-    required this.remainingDurationSeconds,
-    required this.isOffRoute,
-    required this.onExit,
+  const _OffRouteBanner({
+    required this.title,
+    required this.message,
   });
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final locale = Localizations.localeOf(context).languageCode;
+    final colors = Theme.of(context).colorScheme;
 
-    return SafeArea(
-      top: false,
-      child: Card(
-        margin: const EdgeInsets.all(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (isOffRoute) ...[
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color:
-                        Theme.of(context).colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.warning_amber_rounded,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onErrorContainer,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              l10n.offRoute,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onErrorContainer,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              l10n.offRouteHint,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onErrorContainer,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-              Row(
+    return Material(
+      elevation: 4,
+      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+      color: colors.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 10,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.warning_amber_rounded,
+              color: colors.onErrorContainer,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: _Stat(
-                      icon: Icons.straighten,
-                      label: l10n.remaining,
-                      value: Formatters.distance(
-                        remainingDistanceMeters,
-                        locale,
-                      ),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: colors.onErrorContainer,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  Container(
-                    width: 1,
-                    height: 40,
-                    color: Theme.of(context).dividerColor,
-                  ),
-                  Expanded(
-                    child: _Stat(
-                      icon: Icons.access_time,
-                      label: l10n.duration,
-                      value: Formatters.duration(
-                        remainingDurationSeconds,
-                        locale,
-                      ),
+                  const SizedBox(height: 2),
+                  Text(
+                    message,
+                    style: TextStyle(
+                      color: colors.onErrorContainer,
+                      fontSize: 12,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: onExit,
-                  icon: const Icon(Icons.close),
-                  label: Text(l10n.exitNavigation),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _Stat({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Icon(
-          icon,
-          size: 18,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            color: Theme.of(context)
-                .colorScheme
-                .onSurface
-                .withValues(alpha: 0.6),
-          ),
-        ),
-      ],
     );
   }
 }

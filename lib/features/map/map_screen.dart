@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/theme/app_theme.dart';
 import '../../data/models/map_route.dart';
 import '../../data/models/place.dart';
 import '../../l10n/app_localizations.dart';
@@ -131,8 +132,12 @@ class _MapScreenState extends ConsumerState<MapScreen>
                   children: [
                     Expanded(
                       child: RahiSearchBar(
-                        hint: routing.destination?.title ??
-                            l10n.searchPlaceholder,
+                        hint: l10n.searchPlaceholder,
+                        currentValue: routing.destination?.title,
+                        showClear: routing.destination != null,
+                        onClear: () {
+                          ref.read(routingProvider.notifier).clear();
+                        },
                         onTap: _openSearchSheet,
                       ),
                     ),
@@ -156,7 +161,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 onTap: _locateUser,
               ),
             ),
-          if (routing.routes.length > 1)
+          if (routing.routes.length > 1 && !routing.isLoading)
             PositionedDirectional(
               top: MediaQuery.paddingOf(context).top + 80,
               end: 12,
@@ -166,13 +171,14 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 tooltip: l10n.routeType,
               ),
             ),
-          if (selectedRoute != null)
+          if (selectedRoute != null && !routing.isLoading)
             Positioned(
               bottom: 0,
               left: 0,
               right: 0,
               child: RouteInfoCard(
                 route: selectedRoute,
+                locale: Localizations.localeOf(context).languageCode,
                 onStart: () => _onStartNavigation(selectedRoute),
                 onCancel: () {
                   ref.read(routingProvider.notifier).clear();
@@ -261,7 +267,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
-          top: Radius.circular(20),
+          top: Radius.circular(AppTheme.radiusLarge),
         ),
       ),
       builder: (sheetContext) {
@@ -316,7 +322,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
-          top: Radius.circular(20),
+          top: Radius.circular(AppTheme.radiusLarge),
         ),
       ),
       builder: (sheetContext) {
@@ -401,7 +407,7 @@ class _RoundIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      elevation: 4,
+      elevation: 3,
       shape: const CircleBorder(),
       color: Theme.of(context).colorScheme.surface,
       child: Tooltip(
@@ -411,7 +417,7 @@ class _RoundIconButton extends StatelessWidget {
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(12),
-            child: Icon(icon),
+            child: Icon(icon, size: 22),
           ),
         ),
       ),
