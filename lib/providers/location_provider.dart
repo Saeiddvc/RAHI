@@ -392,7 +392,11 @@ class LocationNotifier extends StateNotifier<LatLng?> {
 
   int? _satellitesUsed(Position position) {
     if (position is AndroidPosition) {
-      return position.satellitesUsedInFix;
+      final satellites = position.satellitesUsedInFix;
+      if (!satellites.isFinite || satellites < 0) {
+        return null;
+      }
+      return satellites.round();
     }
     return null;
   }
