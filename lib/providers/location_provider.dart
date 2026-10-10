@@ -68,6 +68,7 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   static const Duration _maxFixAge = Duration(seconds: 25);
   static const Duration _acquisitionWindow = Duration(seconds: 20);
   static const double _maxFusedAccuracyMeters = 50;
+  static const double _maxDegradedFusedAccuracyMeters = 180;
   static const double _maxNativeGnssAccuracyMeters = 120;
   static const int _minimumSatellitesUsed = 4;
 
@@ -247,6 +248,32 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       return;
     }
 
+    // Do not deadlock routing when GNSS is temporarily unavailable (indoors,
+    // urban canyon, cold start). If Android has a fresh fused fix with
+    // moderate accuracy, accept it as a degraded startup origin and keep the
+    // live stream running so a better GNSS/fused fix can replace it.
+    final degradedFused = _bestFusedObserved;
+    if (degradedFused != null &&
+        _isBasicPositionValid(degradedFused) &&
+        degradedFused.accuracy <= _maxDegradedFusedAccuracyMeters) {
+      _acceptFix(
+        location: LatLng(
+          degradedFused.latitude,
+          degradedFused.longitude,
+        ),
+        accuracyMeters: degradedFused.accuracy,
+        timestamp: degradedFused.timestamp.toUtc(),
+        headingDegrees: degradedFused.heading,
+        speedMetersPerSecond: degradedFused.speed,
+      );
+      _setError(
+        'موقعیت اولیه با دقت تقریبی '
+        '${degradedFused.accuracy.round()} متر پذیرفته شد؛ '
+        'راهی با دریافت Fix بهتر آن را اصلاح می‌کند.',
+      );
+      return;
+    }
+
     _lastGnssSnapshot ??= await GnssBridge.snapshot();
     _clearAcceptedFix();
     _setError(_buildAcquisitionError());
@@ -300,18 +327,37 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   }
 
   bool _acceptFusedPosition(Position position) {
-    if (!_isBasicPositionValid(position) ||
-        position.accuracy > _maxFusedAccuracyMeters) {
+    if (!_isBasicPositionValid(position)) {
       return false;
     }
 
-    return _acceptFix(
+    final isRouteGrade =
+        position.accuracy <= _maxFusedAccuracyMeters;
+
+    final currentAccuracy = _lastAcceptedAccuracy;
+    final improvesDegradedFix =
+        currentAccuracy != null &&
+        currentAccuracy > _maxFusedAccuracyMeters &&
+        position.accuracy < currentAccuracy &&
+        position.accuracy <= _maxDegradedFusedAccuracyMeters;
+
+    if (!isRouteGrade && !improvesDegradedFix) {
+      return false;
+    }
+
+    final accepted = _acceptFix(
       location: LatLng(position.latitude, position.longitude),
       accuracyMeters: position.accuracy,
       timestamp: position.timestamp.toUtc(),
       headingDegrees: position.heading,
       speedMetersPerSecond: position.speed,
     );
+
+    if (isRouteGrade) {
+      _setError(null);
+    }
+
+    return accepted;
   }
 
   bool _acceptNativeFix(NativeGnssFix fix) {
