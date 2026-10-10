@@ -109,7 +109,7 @@ class _LocationDeviceGateScreenState
       _snapshotBefore = await GnssBridge.snapshot();
 
       _liveSubscription = Geolocator.getPositionStream(
-        locationSettings: const AndroidSettings(
+        locationSettings: AndroidSettings(
           accuracy: LocationAccuracy.bestForNavigation,
           distanceFilter: 0,
           intervalDuration: Duration(seconds: 1),
@@ -134,7 +134,7 @@ class _LocationDeviceGateScreenState
       );
 
       final fusedFuture = Geolocator.getCurrentPosition(
-        locationSettings: const AndroidSettings(
+        locationSettings: AndroidSettings(
           accuracy: LocationAccuracy.bestForNavigation,
           distanceFilter: 0,
           forceLocationManager: false,
