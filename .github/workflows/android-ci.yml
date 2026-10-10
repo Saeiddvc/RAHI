@@ -56,6 +56,12 @@ jobs:
           fi
           if [ -f android/gradle.properties ]; then
             cp android/gradle.properties /tmp/rahi-android/gradle.properties
+          if [ -d android/app/src/main/kotlin ]; then
+            cp -R android/app/src/main/kotlin /tmp/rahi-android/kotlin
+          fi
+          fi
+          if [ -d android/app/src/main/kotlin ]; then
+            cp -R android/app/src/main/kotlin /tmp/rahi-android/kotlin
           fi
 
           flutter create .             --platforms=android             --project-name=rahi             --org=ir.rahi
@@ -84,6 +90,16 @@ jobs:
           fi
           if [ -f /tmp/rahi-android/gradle.properties ]; then
             cp /tmp/rahi-android/gradle.properties android/gradle.properties
+          if [ -d /tmp/rahi-android/kotlin ]; then
+            rm -rf android/app/src/main/kotlin
+            mkdir -p android/app/src/main
+            cp -R /tmp/rahi-android/kotlin android/app/src/main/kotlin
+          fi
+          fi
+          if [ -d /tmp/rahi-android/kotlin ]; then
+            rm -rf android/app/src/main/kotlin
+            mkdir -p android/app/src/main
+            cp -R /tmp/rahi-android/kotlin android/app/src/main/kotlin
           fi
 
       - name: Verify tracked compile-time secrets contract

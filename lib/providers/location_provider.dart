@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../core/services/gnss_bridge.dart';
+
 enum LocationAccessStatus {
   unknown,
   granted,
@@ -55,18 +57,18 @@ class LocationNotifier extends StateNotifier<LatLng?> {
 
   final Ref _ref;
   StreamSubscription<Position>? _positionSubscription;
-  Position? _lastAcceptedPosition;
-  Position? _bestObservedPosition;
+
+  DateTime? _lastAcceptedTimestamp;
+  double? _lastAcceptedAccuracy;
+  GnssSnapshot? _lastGnssSnapshot;
+  Position? _bestFusedObserved;
+  NativeGnssFix? _bestNativeObserved;
   bool _wentToSettings = false;
 
-  static const Duration _maxFixAge = Duration(seconds: 20);
+  static const Duration _maxFixAge = Duration(seconds: 25);
   static const Duration _acquisitionWindow = Duration(seconds: 20);
-
-  // A fused/network fix is accepted only when it is already very accurate.
-  // A wider radius is allowed only when Android reports real GNSS satellite
-  // participation in the fix.
-  static const double _maxFusedAccuracyMeters = 60;
-  static const double _maxSatelliteBackedAccuracyMeters = 120;
+  static const double _maxFusedAccuracyMeters = 50;
+  static const double _maxNativeGnssAccuracyMeters = 120;
   static const int _minimumSatellitesUsed = 4;
 
   static LocationSettings get _fusedCurrentLocationSettings {
@@ -83,22 +85,6 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       accuracy: LocationAccuracy.bestForNavigation,
       distanceFilter: 0,
       timeLimit: Duration(seconds: 12),
-    );
-  }
-
-  static LocationSettings get _gpsAcquisitionSettings {
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      return AndroidSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 0,
-        forceLocationManager: true,
-        intervalDuration: const Duration(seconds: 1),
-      );
-    }
-
-    return const LocationSettings(
-      accuracy: LocationAccuracy.bestForNavigation,
-      distanceFilter: 0,
     );
   }
 
@@ -119,8 +105,17 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   }
 
   bool get hasFreshUsableFix {
-    final position = _lastAcceptedPosition;
-    return position != null && _isRouteUsable(position);
+    if (state == null ||
+        _lastAcceptedTimestamp == null ||
+        _lastAcceptedAccuracy == null) {
+      return false;
+    }
+
+    final age = DateTime.now().toUtc().difference(
+          _lastAcceptedTimestamp!.toUtc(),
+        );
+
+    return age.abs() <= _maxFixAge;
   }
 
   Future<void> _init() async {
@@ -205,74 +200,56 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   }
 
   Future<void> _acquireBestFix() async {
-    _bestObservedPosition = null;
+    _bestFusedObserved = null;
+    _bestNativeObserved = null;
+    _lastGnssSnapshot = null;
 
     final completer = Completer<void>();
-    StreamSubscription<Position>? gpsSubscription;
-    Timer? timer;
+    final timer = Timer(
+      _acquisitionWindow + const Duration(seconds: 2),
+      () {
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
+      },
+    );
 
-    void finish() {
-      if (!completer.isCompleted) {
+    void finishIfAccepted(bool accepted) {
+      if (accepted && !completer.isCompleted) {
         completer.complete();
       }
     }
 
-    void consider(Position position) {
-      _recordBestObserved(position);
-      if (_acceptPosition(position)) {
-        finish();
-      }
-    }
+    unawaited(
+      Geolocator.getCurrentPosition(
+        locationSettings: _fusedCurrentLocationSettings,
+      ).then((position) {
+        _recordBestFused(position);
+        finishIfAccepted(_acceptFusedPosition(position));
+      }).catchError((Object _) {}),
+    );
 
-    try {
-      // Start a real LocationManager/GNSS stream first. It is allowed to warm
-      // up for several seconds so the first coarse fix does not prematurely
-      // end acquisition.
-      gpsSubscription = Geolocator.getPositionStream(
-        locationSettings: _gpsAcquisitionSettings,
-      ).listen(
-        consider,
-        onError: (_) {},
-      );
+    unawaited(
+      GnssBridge.acquireGpsFix(timeout: _acquisitionWindow).then((fix) {
+        if (fix == null) return;
 
-      // In parallel, request Android's fused position. Fused location combines
-      // GNSS with Wi-Fi/cell/sensor signals and can be excellent when already
-      // well calibrated.
-      unawaited(
-        Geolocator.getCurrentPosition(
-          locationSettings: _fusedCurrentLocationSettings,
-        ).then(consider).catchError((Object _) {}),
-      );
+        _recordBestNative(fix);
+        _lastGnssSnapshot = fix.snapshot;
+        finishIfAccepted(_acceptNativeFix(fix));
+      }),
+    );
 
-      timer = Timer(_acquisitionWindow, finish);
-      await completer.future;
-    } finally {
-      timer?.cancel();
-      await gpsSubscription?.cancel();
-    }
+    await completer.future;
+    timer.cancel();
 
     if (hasFreshUsableFix) {
       _setError(null);
       return;
     }
 
+    _lastGnssSnapshot ??= await GnssBridge.snapshot();
     _clearAcceptedFix();
-
-    final best = _bestObservedPosition;
-    if (best == null) {
-      _setError('موقعیت دقیق فعلی هنوز در دسترس نیست.');
-      return;
-    }
-
-    final satellites = _satellitesUsed(best);
-    final satelliteText =
-        satellites == null ? 'نامشخص' : satellites.toString();
-
-    _setError(
-      'دقت موقعیت فعلی کافی نیست '
-      '(${best.accuracy.round()} متر، ماهواره‌های استفاده‌شده: '
-      '$satelliteText). چند لحظه در فضای باز بمانید و دوباره تلاش کنید.',
-    );
+    _setError(_buildAcquisitionError());
   }
 
   void _startLiveUpdates() {
@@ -281,8 +258,8 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       locationSettings: _liveLocationSettings,
     ).listen(
       (position) {
-        _recordBestObserved(position);
-        if (_acceptPosition(position)) {
+        _recordBestFused(position);
+        if (_acceptFusedPosition(position)) {
           return;
         }
 
@@ -304,66 +281,83 @@ class LocationNotifier extends StateNotifier<LatLng?> {
     _positionSubscription = null;
   }
 
-  void _recordBestObserved(Position position) {
-    if (!_isBasicValid(position)) return;
+  void _recordBestFused(Position position) {
+    if (!_isBasicPositionValid(position)) return;
 
-    final current = _bestObservedPosition;
-    if (current == null || _candidateScore(position) < _candidateScore(current)) {
-      _bestObservedPosition = position;
+    final current = _bestFusedObserved;
+    if (current == null || position.accuracy < current.accuracy) {
+      _bestFusedObserved = position;
     }
   }
 
-  double _candidateScore(Position position) {
-    var score = position.accuracy;
+  void _recordBestNative(NativeGnssFix fix) {
+    if (!_isBasicNativeValid(fix)) return;
 
-    final satellites = _satellitesUsed(position);
-    if (satellites != null && satellites > 0) {
-      score -= satellites.clamp(0, 12) * 2.0;
+    final current = _bestNativeObserved;
+    if (current == null || fix.accuracyMeters < current.accuracyMeters) {
+      _bestNativeObserved = fix;
     }
-
-    final ageSeconds = DateTime.now()
-        .toUtc()
-        .difference(position.timestamp.toUtc())
-        .inMilliseconds
-        .abs() /
-        1000.0;
-    score += ageSeconds * 0.5;
-
-    return score;
   }
 
-  bool _acceptPosition(Position position) {
-    if (!_isRouteUsable(position)) {
+  bool _acceptFusedPosition(Position position) {
+    if (!_isBasicPositionValid(position) ||
+        position.accuracy > _maxFusedAccuracyMeters) {
       return false;
     }
 
-    _lastAcceptedPosition = position;
-    final location = LatLng(position.latitude, position.longitude);
-    state = location;
-    _ref.read(locationMotionProvider.notifier).state = LocationMotion(
-      location: location,
+    return _acceptFix(
+      location: LatLng(position.latitude, position.longitude),
+      accuracyMeters: position.accuracy,
+      timestamp: position.timestamp.toUtc(),
       headingDegrees: position.heading,
       speedMetersPerSecond: position.speed,
-      timestamp: position.timestamp.toUtc(),
     );
+  }
+
+  bool _acceptNativeFix(NativeGnssFix fix) {
+    if (!_isBasicNativeValid(fix)) return false;
+
+    final enoughSatellites =
+        fix.snapshot.satellitesUsedInFix >= _minimumSatellitesUsed;
+    final accurateEnough =
+        fix.accuracyMeters <= _maxNativeGnssAccuracyMeters;
+
+    if (!enoughSatellites || !accurateEnough) {
+      return false;
+    }
+
+    return _acceptFix(
+      location: fix.location,
+      accuracyMeters: fix.accuracyMeters,
+      timestamp: fix.timestamp,
+      headingDegrees: fix.headingDegrees,
+      speedMetersPerSecond: fix.speedMetersPerSecond,
+    );
+  }
+
+  bool _acceptFix({
+    required LatLng location,
+    required double accuracyMeters,
+    required DateTime timestamp,
+    required double headingDegrees,
+    required double speedMetersPerSecond,
+  }) {
+    _lastAcceptedTimestamp = timestamp.toUtc();
+    _lastAcceptedAccuracy = accuracyMeters;
+    state = location;
+
+    _ref.read(locationMotionProvider.notifier).state = LocationMotion(
+      location: location,
+      headingDegrees: headingDegrees,
+      speedMetersPerSecond: speedMetersPerSecond,
+      timestamp: timestamp.toUtc(),
+    );
+
     _setStatus(LocationAccessStatus.granted);
     return true;
   }
 
-  bool _isRouteUsable(Position position) {
-    if (!_isBasicValid(position)) return false;
-
-    if (position.accuracy <= _maxFusedAccuracyMeters) {
-      return true;
-    }
-
-    final satellites = _satellitesUsed(position);
-    return satellites != null &&
-        satellites >= _minimumSatellitesUsed &&
-        position.accuracy <= _maxSatelliteBackedAccuracyMeters;
-  }
-
-  bool _isBasicValid(Position position) {
+  bool _isBasicPositionValid(Position position) {
     if (position.isMocked) return false;
 
     if (!position.latitude.isFinite ||
@@ -379,26 +373,58 @@ class LocationNotifier extends StateNotifier<LatLng?> {
       return false;
     }
 
-    final age = DateTime.now().toUtc().difference(
-          position.timestamp.toUtc(),
-        );
-
-    if (age.isNegative) {
-      return age.abs() <= _maxFixAge;
-    }
-
-    return age <= _maxFixAge;
+    return _isFresh(position.timestamp);
   }
 
-  int? _satellitesUsed(Position position) {
-    if (position is AndroidPosition) {
-      final satellites = position.satellitesUsedInFix;
-      if (!satellites.isFinite || satellites < 0) {
-        return null;
-      }
-      return satellites.round();
+  bool _isBasicNativeValid(NativeGnssFix fix) {
+    if (fix.mocked ||
+        !fix.location.latitude.isFinite ||
+        !fix.location.longitude.isFinite ||
+        !fix.accuracyMeters.isFinite ||
+        fix.accuracyMeters <= 0) {
+      return false;
     }
-    return null;
+
+    return _isFresh(fix.timestamp);
+  }
+
+  bool _isFresh(DateTime timestamp) {
+    final age = DateTime.now().toUtc().difference(timestamp.toUtc());
+    return age.abs() <= _maxFixAge;
+  }
+
+  String _buildAcquisitionError() {
+    final fused = _bestFusedObserved;
+    final native = _bestNativeObserved;
+    final snapshot = _lastGnssSnapshot;
+
+    final parts = <String>[];
+
+    if (fused != null) {
+      parts.add('ترکیبی: ${fused.accuracy.round()}م');
+    }
+
+    if (native != null) {
+      parts.add('GNSS: ${native.accuracyMeters.round()}م');
+    }
+
+    if (snapshot != null) {
+      parts.add(
+        'ماهواره: ${snapshot.satellitesUsedInFix}/'
+        '${snapshot.totalSatellites}',
+      );
+
+      if (snapshot.constellations.isNotEmpty) {
+        parts.add(snapshot.constellationSummary);
+      }
+    }
+
+    if (parts.isEmpty) {
+      return 'موقعیت دقیق فعلی هنوز در دسترس نیست.';
+    }
+
+    return 'Fix قابل اعتماد برای مسیریابی به دست نیامد '
+        '(${parts.join(' | ')}). چند لحظه در فضای باز بمانید و دوباره تلاش کنید.';
   }
 
   Future<LatLng?> acquireFreshLocation() async {
@@ -432,7 +458,8 @@ class LocationNotifier extends StateNotifier<LatLng?> {
   }
 
   void _clearAcceptedFix() {
-    _lastAcceptedPosition = null;
+    _lastAcceptedTimestamp = null;
+    _lastAcceptedAccuracy = null;
     _ref.read(locationMotionProvider.notifier).state = null;
     state = null;
   }

@@ -55,6 +55,9 @@ jobs:
           cp android/app/build.gradle.kts /tmp/rahi-android/build.gradle.kts
           cp android/app/proguard-rules.pro /tmp/rahi-android/proguard-rules.pro
           cp android/gradle.properties /tmp/rahi-android/gradle.properties
+          if [ -d android/app/src/main/kotlin ]; then
+            cp -R android/app/src/main/kotlin /tmp/rahi-android/kotlin
+          fi
 
           flutter create . \
             --platforms=android \
@@ -76,6 +79,11 @@ jobs:
           cp /tmp/rahi-android/build.gradle.kts android/app/build.gradle.kts
           cp /tmp/rahi-android/proguard-rules.pro android/app/proguard-rules.pro
           cp /tmp/rahi-android/gradle.properties android/gradle.properties
+          if [ -d /tmp/rahi-android/kotlin ]; then
+            rm -rf android/app/src/main/kotlin
+            mkdir -p android/app/src/main
+            cp -R /tmp/rahi-android/kotlin android/app/src/main/kotlin
+          fi
 
       - name: Validate required Test B secret
         shell: bash
