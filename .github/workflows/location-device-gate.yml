@@ -1,0 +1,95 @@
+name: RAHI Location Device Gate
+
+on:
+  push:
+    branches:
+      - v1-commit-20a-location-device-gate
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-location-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+
+      - name: Preserve RAHI sources
+        shell: bash
+        run: |
+          mkdir -p /tmp/rahi-source /tmp/rahi-android
+          cp -R lib /tmp/rahi-source/lib
+          cp pubspec.yaml /tmp/rahi-source/pubspec.yaml
+          cp analysis_options.yaml /tmp/rahi-source/analysis_options.yaml
+
+          cp android/app/src/main/AndroidManifest.xml /tmp/rahi-android/AndroidManifest.xml
+          cp android/app/src/main/res/values/strings.xml /tmp/rahi-android/strings.xml
+          cp android/app/build.gradle.kts /tmp/rahi-android/build.gradle.kts
+          cp android/app/proguard-rules.pro /tmp/rahi-android/proguard-rules.pro
+          cp android/gradle.properties /tmp/rahi-android/gradle.properties
+          cp -R android/app/src/main/kotlin /tmp/rahi-android/kotlin
+
+      - name: Generate Android scaffold
+        shell: bash
+        run: |
+          flutter create .             --platforms=android             --project-name=rahi             --org=ir.rahi
+
+          rm -rf lib
+          cp -R /tmp/rahi-source/lib ./lib
+          cp /tmp/rahi-source/pubspec.yaml ./pubspec.yaml
+          cp /tmp/rahi-source/analysis_options.yaml ./analysis_options.yaml
+
+          cp /tmp/rahi-android/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          mkdir -p android/app/src/main/res/values
+          cp /tmp/rahi-android/strings.xml android/app/src/main/res/values/strings.xml
+          cp /tmp/rahi-android/build.gradle.kts android/app/build.gradle.kts
+          cp /tmp/rahi-android/proguard-rules.pro android/app/proguard-rules.pro
+          cp /tmp/rahi-android/gradle.properties android/gradle.properties
+          rm -rf android/app/src/main/kotlin
+          mkdir -p android/app/src/main
+          cp -R /tmp/rahi-android/kotlin android/app/src/main/kotlin
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze location gate
+        run: |
+          flutter analyze             lib/diagnostics/location_device_gate_main.dart             lib/diagnostics/location_device_gate_app.dart             lib/core/services/gnss_bridge.dart
+
+      - name: Build Location Device Gate APK
+        run: |
+          flutter build apk --debug             -t lib/diagnostics/location_device_gate_main.dart
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          mkdir -p build/location-gate
+          cp build/app/outputs/flutter-apk/app-debug.apk             build/location-gate/RAHI-Location-Device-Gate.apk
+          sha256sum build/location-gate/RAHI-Location-Device-Gate.apk             | tee build/location-gate/RAHI-Location-Device-Gate.apk.sha256
+
+      - name: Upload Device Gate APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: RAHI-Location-Device-Gate-${{ github.run_number }}
+          path: |
+            build/location-gate/RAHI-Location-Device-Gate.apk
+            build/location-gate/RAHI-Location-Device-Gate.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
