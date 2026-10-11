@@ -18,6 +18,10 @@ import 'widgets/maneuver_banner.dart';
 import 'widgets/nav_bottom_card.dart';
 import 'widgets/remaining_steps_sheet.dart';
 
+const bool _gate2DiagnosticsEnabled = bool.fromEnvironment(
+  'RAHI_GATE2_DIAGNOSTICS',
+);
+
 class NavigationScreen extends ConsumerStatefulWidget {
   const NavigationScreen({super.key});
 
@@ -156,6 +160,20 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
                 (route.points.isNotEmpty ? route.points.last : null),
             userLocationOverride: navigation.matchedLocation,
           ),
+          if (_gate2DiagnosticsEnabled)
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 118,
+              left: 12,
+              child: _Gate2DiagnosticsCard(
+                crossTrackMeters: navigation.distanceFromRouteMeters,
+                progressFraction: navigation.routeProgressFraction,
+                remainingMeters: navigation.remainingDistanceMeters,
+                stepIndex: navigation.currentStepIndex,
+                stepCount: route.steps.length,
+                offRoute: navigation.isOffRoute,
+                matched: navigation.matchedLocation != null,
+              ),
+            ),
           Positioned(
             top: MediaQuery.paddingOf(context).top + 8,
             left: 12,
@@ -364,6 +382,60 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
     } else {
       context.go('/');
     }
+  }
+}
+
+class _Gate2DiagnosticsCard extends StatelessWidget {
+  final double crossTrackMeters;
+  final double progressFraction;
+  final double remainingMeters;
+  final int stepIndex;
+  final int stepCount;
+  final bool offRoute;
+  final bool matched;
+
+  const _Gate2DiagnosticsCard({
+    required this.crossTrackMeters,
+    required this.progressFraction,
+    required this.remainingMeters,
+    required this.stepIndex,
+    required this.stepCount,
+    required this.offRoute,
+    required this.matched,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = [
+      'GATE 2',
+      'cross-track: ${crossTrackMeters.toStringAsFixed(1)} m',
+      'progress: ${(progressFraction * 100).toStringAsFixed(1)}%',
+      'remaining: ${remainingMeters.toStringAsFixed(0)} m',
+      'step: $stepIndex/${stepCount > 0 ? stepCount - 1 : 0}',
+      'matched: $matched',
+      'off-route: $offRoute',
+    ].join('\n');
+
+    return Material(
+      elevation: 4,
+      borderRadius: BorderRadius.circular(10),
+      color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.92),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 8,
+        ),
+        child: SelectableText(
+          text,
+          textDirection: TextDirection.ltr,
+          style: const TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 11,
+            height: 1.25,
+          ),
+        ),
+      ),
+    );
   }
 }
 
