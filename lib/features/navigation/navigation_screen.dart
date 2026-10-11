@@ -171,7 +171,8 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
                 stepIndex: navigation.currentStepIndex,
                 stepCount: route.steps.length,
                 offRoute: navigation.isOffRoute,
-                matched: navigation.matchedLocation != null,
+                matched: navigation.matchedLocation != null &&
+                    navigation.distanceFromRouteMeters <= 35,
               ),
             ),
           Positioned(
