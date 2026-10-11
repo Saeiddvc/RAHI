@@ -1,15 +1,15 @@
-name: RAHI Gate 2 Map Matching Device Test
+name: RAHI 20c Search Exit Device Test
 
 on:
   push:
     branches:
-      - v1-commit-20b-map-matching-progress
+      - v1-commit-20c-search-exit-polish
   workflow_dispatch:
     inputs:
       note:
         description: 'Optional Gate 2 device test note'
         required: false
-        default: 'Map Matching + Route Progress'
+        default: 'Search ranking + clean exit + Gate 2 diagnostics'
 
 permissions:
   contents: read
@@ -136,15 +136,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p build/gate2
-          cp build/app/outputs/flutter-apk/app-debug.apk             build/gate2/RAHI-Gate2-MapMatching.apk
-          sha256sum build/gate2/RAHI-Gate2-MapMatching.apk             | tee build/gate2/RAHI-Gate2-MapMatching.apk.sha256
+          cp build/app/outputs/flutter-apk/app-debug.apk             build/gate2/RAHI-20c-Search-Exit.apk
+          sha256sum build/gate2/RAHI-20c-Search-Exit.apk             | tee build/gate2/RAHI-20c-Search-Exit.apk.sha256
 
       - name: Upload Gate 2 APK
         uses: actions/upload-artifact@v7
         with:
-          name: RAHI-Gate2-MapMatching-${{ github.run_number }}
+          name: RAHI-20c-Search-Exit-${{ github.run_number }}
           path: |
-            build/gate2/RAHI-Gate2-MapMatching.apk
-            build/gate2/RAHI-Gate2-MapMatching.apk.sha256
+            build/gate2/RAHI-20c-Search-Exit.apk
+            build/gate2/RAHI-20c-Search-Exit.apk.sha256
           if-no-files-found: error
           retention-days: 30
