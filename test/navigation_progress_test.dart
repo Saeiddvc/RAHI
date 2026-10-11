@@ -4,13 +4,24 @@ import 'package:latlong2/latlong.dart';
 import 'package:rahi/data/models/map_route.dart';
 import 'package:rahi/data/models/route_step.dart';
 import 'package:rahi/features/navigation/providers/navigation_provider.dart';
+import 'package:rahi/providers/settings_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('Navigation route progress', () {
     late ProviderContainer container;
 
-    setUp(() {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({
+        'voice': false,
+      });
+
       container = ProviderContainer();
+      await container
+          .read(settingsProvider.notifier)
+          .setVoice(false);
     });
 
     tearDown(() {
