@@ -1,0 +1,150 @@
+name: RAHI Gate 2 Map Matching Device Test
+
+on:
+  push:
+    branches:
+      - v1-commit-20b-map-matching-progress
+  workflow_dispatch:
+    inputs:
+      note:
+        description: 'Optional Gate 2 device test note'
+        required: false
+        default: 'Map Matching + Route Progress'
+
+permissions:
+  contents: read
+
+jobs:
+  build-gate2-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+
+      - name: Preserve RAHI sources
+        shell: bash
+        run: |
+          mkdir -p /tmp/rahi-source /tmp/rahi-android
+          cp -R lib /tmp/rahi-source/lib
+          cp -R test /tmp/rahi-source/test
+          cp pubspec.yaml /tmp/rahi-source/pubspec.yaml
+          cp analysis_options.yaml /tmp/rahi-source/analysis_options.yaml
+          if [ -f l10n.yaml ]; then cp l10n.yaml /tmp/rahi-source/l10n.yaml; fi
+
+          cp android/app/src/main/AndroidManifest.xml /tmp/rahi-android/AndroidManifest.xml
+          cp android/app/src/main/res/values/strings.xml /tmp/rahi-android/strings.xml
+          cp android/app/build.gradle.kts /tmp/rahi-android/build.gradle.kts
+          cp android/app/proguard-rules.pro /tmp/rahi-android/proguard-rules.pro
+          cp android/gradle.properties /tmp/rahi-android/gradle.properties
+          if [ -d android/app/src/main/kotlin ]; then
+            cp -R android/app/src/main/kotlin /tmp/rahi-android/kotlin
+          fi
+
+      - name: Generate Android scaffold
+        shell: bash
+        run: |
+          flutter create .             --platforms=android             --project-name=rahi             --org=ir.rahi
+
+          rm -rf lib test
+          cp -R /tmp/rahi-source/lib ./lib
+          cp -R /tmp/rahi-source/test ./test
+          cp /tmp/rahi-source/pubspec.yaml ./pubspec.yaml
+          cp /tmp/rahi-source/analysis_options.yaml ./analysis_options.yaml
+          if [ -f /tmp/rahi-source/l10n.yaml ]; then
+            cp /tmp/rahi-source/l10n.yaml ./l10n.yaml
+          fi
+
+          cp /tmp/rahi-android/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          mkdir -p android/app/src/main/res/values
+          cp /tmp/rahi-android/strings.xml android/app/src/main/res/values/strings.xml
+          cp /tmp/rahi-android/build.gradle.kts android/app/build.gradle.kts
+          cp /tmp/rahi-android/proguard-rules.pro android/app/proguard-rules.pro
+          cp /tmp/rahi-android/gradle.properties android/gradle.properties
+          if [ -d /tmp/rahi-android/kotlin ]; then
+            rm -rf android/app/src/main/kotlin
+            mkdir -p android/app/src/main
+            cp -R /tmp/rahi-android/kotlin android/app/src/main/kotlin
+          fi
+
+      - name: Validate real service keys
+        shell: bash
+        env:
+          NESHAN_API_KEY: ${{ secrets.NESHAN_API_KEY }}
+          PARSIMAP_SERVICE_TOKEN: ${{ secrets.PARSIMAP_SERVICE_TOKEN }}
+        run: |
+          test -n "$NESHAN_API_KEY" || {
+            echo "NESHAN_API_KEY is missing."
+            exit 1
+          }
+          test -n "$PARSIMAP_SERVICE_TOKEN" || {
+            echo "PARSIMAP_SERVICE_TOKEN is missing."
+            exit 1
+          }
+          echo "Gate 2 real service keys are configured."
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Generate branding
+        run: |
+          python -m pip install --disable-pip-version-check Pillow
+          python tools/generate_icon.py
+          dart run flutter_launcher_icons
+          dart run flutter_native_splash:create
+
+      - name: Generate localizations
+        run: flutter gen-l10n
+
+      - name: Static analysis
+        run: flutter analyze
+
+      - name: Gate 2 logic tests
+        run: |
+          flutter test test/route_progress_matcher_test.dart
+          flutter test test/navigation_progress_test.dart
+
+      - name: Full unit test suite
+        run: flutter test
+
+      - name: Build Gate 2 APK with real keys
+        shell: bash
+        env:
+          NESHAN_API_KEY: ${{ secrets.NESHAN_API_KEY }}
+          PARSIMAP_SERVICE_TOKEN: ${{ secrets.PARSIMAP_SERVICE_TOKEN }}
+          PARSIMAP_MAP_TOKEN: ${{ secrets.PARSIMAP_MAP_TOKEN }}
+        run: |
+          flutter build apk --debug             "--dart-define=NESHAN_API_KEY=$NESHAN_API_KEY"             "--dart-define=PARSIMAP_SERVICE_TOKEN=$PARSIMAP_SERVICE_TOKEN"             "--dart-define=PARSIMAP_MAP_TOKEN=$PARSIMAP_MAP_TOKEN"
+
+          test -f build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Prepare Gate 2 artifact
+        shell: bash
+        run: |
+          mkdir -p build/gate2
+          cp build/app/outputs/flutter-apk/app-debug.apk             build/gate2/RAHI-Gate2-MapMatching.apk
+          sha256sum build/gate2/RAHI-Gate2-MapMatching.apk             | tee build/gate2/RAHI-Gate2-MapMatching.apk.sha256
+
+      - name: Upload Gate 2 APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: RAHI-Gate2-MapMatching-${{ github.run_number }}
+          path: |
+            build/gate2/RAHI-Gate2-MapMatching.apk
+            build/gate2/RAHI-Gate2-MapMatching.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
