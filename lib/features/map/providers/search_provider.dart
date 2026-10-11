@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../core/services/map_service.dart';
 import '../../../data/models/place.dart';
 import '../../../providers/map_service_provider.dart';
 import '../utils/search_result_ranker.dart';
@@ -99,7 +100,7 @@ class SearchNotifier extends StateNotifier<SearchState> {
   }
 
   Future<List<Place>> _safeSearch(
-    dynamic service, {
+    MapService service, {
     required String term,
     required LatLng center,
   }) async {
