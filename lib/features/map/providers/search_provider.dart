@@ -3,6 +3,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../../../data/models/place.dart';
 import '../../../providers/map_service_provider.dart';
+import '../utils/search_result_ranker.dart';
 
 class SearchState {
   final String query;
@@ -56,13 +57,30 @@ class SearchNotifier extends StateNotifier<SearchState> {
     );
 
     try {
-      final service = _ref.read(searchServiceProvider);
-      final results = await service.search(
-        term: normalizedTerm,
-        center: center,
-      );
+      final primary = _ref.read(searchServiceProvider);
+      final secondary = _ref.read(secondarySearchServiceProvider);
+
+      final responses = await Future.wait<List<Place>>([
+        _safeSearch(
+          primary,
+          term: normalizedTerm,
+          center: center,
+        ),
+        _safeSearch(
+          secondary,
+          term: normalizedTerm,
+          center: center,
+        ),
+      ]);
 
       if (requestId != _requestId) return;
+
+      final results = SearchResultRanker.mergeAndRank(
+        query: normalizedTerm,
+        center: center,
+        primary: responses[0],
+        secondary: responses[1],
+      );
 
       state = state.copyWith(
         isLoading: false,
@@ -77,6 +95,21 @@ class SearchNotifier extends StateNotifier<SearchState> {
         results: const [],
         error: error.toString(),
       );
+    }
+  }
+
+  Future<List<Place>> _safeSearch(
+    dynamic service, {
+    required String term,
+    required LatLng center,
+  }) async {
+    try {
+      return await service.search(
+        term: term,
+        center: center,
+      );
+    } catch (_) {
+      return const [];
     }
   }
 
