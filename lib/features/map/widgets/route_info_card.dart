@@ -83,17 +83,19 @@ class RouteInfoCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _StatBox(
-                    icon: Icons.traffic_rounded,
-                    label: _trafficTitle(effectiveLocale),
-                    value: _trafficLabel(
-                      route.trafficStatus,
-                      l10n,
+                if (_hasTrafficData(route.trafficStatus)) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _StatBox(
+                      icon: Icons.traffic_rounded,
+                      label: _trafficTitle(effectiveLocale),
+                      value: _trafficLabel(
+                        route.trafficStatus,
+                        l10n,
+                      ),
                     ),
                   ),
-                ),
+                ],
               ],
             ),
             const SizedBox(height: 16),
@@ -125,6 +127,13 @@ class RouteInfoCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  bool _hasTrafficData(String? status) {
+    final normalized = status?.trim().toUpperCase();
+    return normalized == 'LOW' ||
+        normalized == 'MEDIUM' ||
+        normalized == 'HIGH';
   }
 
   String _trafficLabel(
