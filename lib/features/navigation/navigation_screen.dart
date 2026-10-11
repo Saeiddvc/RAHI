@@ -48,31 +48,34 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
     ref.listen<LocationMotion?>(locationMotionProvider, (previous, next) {
       if (next == null) return;
 
-      unawaited(
-        ref
+      unawaited(() async {
+        await ref
             .read(navigationProvider.notifier)
-            .updateUserLocation(next.location),
-      );
+            .updateUserLocation(next.location);
 
-      if (!_followUser) return;
+        if (!_followUser || !mounted) return;
 
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
+        final matched = ref.read(navigationProvider).matchedLocation;
+        final followLocation = matched ?? next.location;
 
-        try {
-          if (next.hasUsableHeading) {
-            _mapController.moveAndRotate(
-              next.location,
-              17,
-              next.headingDegrees,
-            );
-          } else {
-            _mapController.move(next.location, 16);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+
+          try {
+            if (next.hasUsableHeading) {
+              _mapController.moveAndRotate(
+                followLocation,
+                17,
+                next.headingDegrees,
+              );
+            } else {
+              _mapController.move(followLocation, 16);
+            }
+          } catch (_) {
+            // The map controller may not yet be attached on the first frame.
           }
-        } catch (_) {
-          // The map controller may not yet be attached on the first frame.
-        }
-      });
+        });
+      }());
     });
 
     ref.listen<bool>(
@@ -114,7 +117,10 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
       return const SizedBox.shrink();
     }
 
-    final center = userLocation ??
+    final navigationLocation =
+        navigation.matchedLocation ?? userLocation;
+
+    final center = navigationLocation ??
         (route.points.isNotEmpty
             ? route.points.first
             : const LatLng(
@@ -148,6 +154,7 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
             selectedRouteIndex: 0,
             destination: navigation.destination?.location ??
                 (route.points.isNotEmpty ? route.points.last : null),
+            userLocationOverride: navigation.matchedLocation,
           ),
           Positioned(
             top: MediaQuery.paddingOf(context).top + 8,
@@ -230,17 +237,17 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
                 onPressed: () {
                   setState(() => _followUser = !_followUser);
 
-                  if (_followUser && userLocation != null) {
+                  if (_followUser && navigationLocation != null) {
                     final motion = ref.read(locationMotionProvider);
                     try {
                       if (motion != null && motion.hasUsableHeading) {
                         _mapController.moveAndRotate(
-                          userLocation,
+                          navigationLocation,
                           17,
                           motion.headingDegrees,
                         );
                       } else {
-                        _mapController.move(userLocation, 16);
+                        _mapController.move(navigationLocation, 16);
                       }
                     } catch (_) {
                       // Map may not yet be attached.
