@@ -13,6 +13,7 @@ class RahiMap extends ConsumerWidget {
   final List<MapRoute> routes;
   final int selectedRouteIndex;
   final LatLng? destination;
+  final LatLng? userLocationOverride;
   final ValueChanged<LatLng>? onCenterChanged;
 
   const RahiMap({
@@ -22,12 +23,14 @@ class RahiMap extends ConsumerWidget {
     this.routes = const [],
     this.selectedRouteIndex = 0,
     this.destination,
+    this.userLocationOverride,
     this.onCenterChanged,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final userLocation = ref.watch(locationProvider);
+    final providerLocation = ref.watch(locationProvider);
+    final userLocation = userLocationOverride ?? providerLocation;
     return FlutterMap(
       mapController: mapController,
       options: MapOptions(
