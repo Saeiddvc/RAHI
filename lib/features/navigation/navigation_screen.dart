@@ -12,6 +12,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../l10n/app_localizations.dart';
 import '../../providers/location_provider.dart';
+import '../map/providers/routing_provider.dart';
+import '../map/providers/search_provider.dart';
 import '../map/widgets/rahi_map.dart';
 import 'providers/navigation_provider.dart';
 import 'widgets/maneuver_banner.dart';
@@ -375,14 +377,12 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
 
   Future<void> _exitNavigation() async {
     await ref.read(navigationProvider.notifier).stop();
+    ref.read(routingProvider.notifier).clear();
+    ref.read(searchProvider.notifier).clear();
 
     if (!mounted) return;
 
-    if (Navigator.of(context).canPop()) {
-      context.pop();
-    } else {
-      context.go('/');
-    }
+    context.go('/');
   }
 }
 
