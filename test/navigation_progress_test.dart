@@ -74,6 +74,7 @@ void main() {
       expect(first.routeProgressFraction, closeTo(0.20, 0.03));
       expect(first.routeProgressMeters, closeTo(200, 30));
       expect(first.remainingDistanceMeters, closeTo(800, 30));
+      expect(first.remainingDurationSeconds, closeTo(160, 8));
       expect(first.currentStepIndex, 1);
       expect(first.matchedLocation, isNotNull);
       expect(first.distanceFromRouteMeters, lessThan(1));
