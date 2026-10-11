@@ -128,7 +128,7 @@ jobs:
           PARSIMAP_SERVICE_TOKEN: ${{ secrets.PARSIMAP_SERVICE_TOKEN }}
           PARSIMAP_MAP_TOKEN: ${{ secrets.PARSIMAP_MAP_TOKEN }}
         run: |
-          flutter build apk --debug             "--dart-define=NESHAN_API_KEY=$NESHAN_API_KEY"             "--dart-define=PARSIMAP_SERVICE_TOKEN=$PARSIMAP_SERVICE_TOKEN"             "--dart-define=PARSIMAP_MAP_TOKEN=$PARSIMAP_MAP_TOKEN"
+          flutter build apk --debug             "--dart-define=NESHAN_API_KEY=$NESHAN_API_KEY"             "--dart-define=PARSIMAP_SERVICE_TOKEN=$PARSIMAP_SERVICE_TOKEN"             "--dart-define=PARSIMAP_MAP_TOKEN=$PARSIMAP_MAP_TOKEN"             "--dart-define=RAHI_GATE2_DIAGNOSTICS=true"
 
           test -f build/app/outputs/flutter-apk/app-debug.apk
 
