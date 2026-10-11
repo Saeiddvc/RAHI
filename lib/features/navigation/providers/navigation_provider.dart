@@ -668,6 +668,13 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
     required double routeProgressMeters,
     required double remainingDistanceMeters,
   }) {
+    if (route.durationSeconds > 0 && route.distanceMeters > 0) {
+      return _proportionalDuration(
+        route,
+        remainingDistanceMeters,
+      );
+    }
+
     if (!route.hasSteps ||
         stepIndex <= 0 ||
         stepIndex >= route.steps.length ||
