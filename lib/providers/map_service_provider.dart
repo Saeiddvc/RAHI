@@ -15,6 +15,10 @@ final searchServiceProvider = Provider<MapService>((ref) {
   return ParsimapApi();
 });
 
+final secondarySearchServiceProvider = Provider<MapService>((ref) {
+  return NeshanApi();
+});
+
 final reverseServiceProvider = Provider<MapService>((ref) {
   return ParsimapApi();
 });
