@@ -341,18 +341,34 @@ class _SearchSheetState extends ConsumerState<SearchSheet> {
               fontSize: 14,
             ),
           ),
-          subtitle: place.address.isNotEmpty
-              ? Text(
-                  place.address,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12),
-                )
-              : null,
+          subtitle: Text(
+            _resultSubtitle(place),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12),
+          ),
           onTap: () => widget.onPlaceSelected(place),
         );
       },
     );
+  }
+
+  String _resultSubtitle(Place place) {
+    final meters = const Distance().as(
+      LengthUnit.Meter,
+      widget.searchCenter,
+      place.location,
+    );
+
+    final distanceText = meters < 1000
+        ? '${meters.round()} متر'
+        : '${(meters / 1000).toStringAsFixed(1)} کیلومتر';
+
+    if (place.address.trim().isEmpty) {
+      return distanceText;
+    }
+
+    return '$distanceText • ${place.address}';
   }
 
   Widget _buildEmptyHint(AppLocalizations l10n) {
