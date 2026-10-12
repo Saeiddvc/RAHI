@@ -51,30 +51,34 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
     final route = navigation.route;
     final locale = Localizations.localeOf(context).languageCode;
 
-    ref.listen<LocationMotion?>(locationMotionProvider, (previous, next) {
-      if (next == null || !_followUser || !mounted) return;
-
-      final matched = ref.read(navigationProvider).matchedLocation;
-      final followLocation = matched ?? next.location;
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-
-        try {
-          if (next.hasUsableHeading) {
-            _mapController.moveAndRotate(
-              followLocation,
-              17,
-              next.headingDegrees,
-            );
-          } else {
-            _mapController.move(followLocation, 16);
-          }
-        } catch (_) {
-          // The map controller may not yet be attached on the first frame.
+    ref.listen<LatLng?>(
+      navigationProvider.select((state) => state.matchedLocation),
+      (previous, next) {
+        if (next == null || next == previous || !_followUser || !mounted) {
+          return;
         }
-      });
-    });
+
+        final motion = ref.read(locationMotionProvider);
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+
+          try {
+            if (motion != null && motion.hasUsableHeading) {
+              _mapController.moveAndRotate(
+                next,
+                17,
+                motion.headingDegrees,
+              );
+            } else {
+              _mapController.move(next, 16);
+            }
+          } catch (_) {
+            // The map controller may not yet be attached on the first frame.
+          }
+        });
+      },
+    );
 
     ref.listen<bool>(
       navigationProvider.select(
@@ -185,6 +189,7 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
                         navigation.rawLocation!,
                         navigation.matchedLocation!,
                       ),
+                source: navigation.lastLocationSource,
               ),
             ),
           Positioned(
@@ -327,7 +332,9 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
 
     _rerouteDialogOpen = true;
     final l10n = AppLocalizations.of(context)!;
-    final userLocation = ref.read(locationProvider);
+    final navigation = ref.read(navigationProvider);
+    final userLocation =
+        navigation.rawLocation ?? ref.read(locationProvider);
 
     if (userLocation == null) {
       ref.read(navigationProvider.notifier).dismissReroute();
@@ -407,6 +414,7 @@ class _Gate2DiagnosticsCard extends StatelessWidget {
   final int sampleCount;
   final double? sampleAgeSeconds;
   final double? rawToMatchedMeters;
+  final String? source;
 
   const _Gate2DiagnosticsCard({
     required this.crossTrackMeters,
@@ -419,6 +427,7 @@ class _Gate2DiagnosticsCard extends StatelessWidget {
     required this.sampleCount,
     required this.sampleAgeSeconds,
     required this.rawToMatchedMeters,
+    required this.source,
   });
 
   @override
@@ -434,6 +443,7 @@ class _Gate2DiagnosticsCard extends StatelessWidget {
       'samples: $sampleCount',
       'sample age: ${sampleAgeSeconds == null ? '-' : '${sampleAgeSeconds!.toStringAsFixed(1)} s'}',
       'raw->matched: ${rawToMatchedMeters == null ? '-' : '${rawToMatchedMeters!.toStringAsFixed(1)} m'}',
+      'source: ${source ?? '-'}',
     ].join('\n');
 
     return Material(
