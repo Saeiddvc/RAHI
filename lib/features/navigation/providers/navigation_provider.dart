@@ -7,6 +7,7 @@ import '../../../core/services/voice_service.dart';
 import '../../../data/models/map_route.dart';
 import '../../../data/models/place.dart';
 import '../../../data/models/route_step.dart';
+import '../../../providers/location_provider.dart';
 import '../../../providers/map_service_provider.dart';
 import '../../../providers/settings_provider.dart';
 import '../utils/off_route_detector.dart';
@@ -25,6 +26,9 @@ class NavigationState {
   final double distanceFromRouteMeters;
   final double routeProgressMeters;
   final double routeProgressFraction;
+  final LatLng? rawLocation;
+  final DateTime? lastLocationSampleAt;
+  final int locationSampleCount;
   final bool arrived;
   final bool isActive;
   final bool voiceUnavailable;
@@ -44,6 +48,9 @@ class NavigationState {
     this.distanceFromRouteMeters = 0,
     this.routeProgressMeters = 0,
     this.routeProgressFraction = 0,
+    this.rawLocation,
+    this.lastLocationSampleAt,
+    this.locationSampleCount = 0,
     this.arrived = false,
     this.isActive = false,
     this.voiceUnavailable = false,
@@ -97,6 +104,9 @@ class NavigationState {
     double? distanceFromRouteMeters,
     double? routeProgressMeters,
     double? routeProgressFraction,
+    LatLng? rawLocation,
+    DateTime? lastLocationSampleAt,
+    int? locationSampleCount,
     bool? arrived,
     bool? isActive,
     bool? voiceUnavailable,
@@ -127,6 +137,11 @@ class NavigationState {
           routeProgressMeters ?? this.routeProgressMeters,
       routeProgressFraction:
           routeProgressFraction ?? this.routeProgressFraction,
+      rawLocation: rawLocation ?? this.rawLocation,
+      lastLocationSampleAt:
+          lastLocationSampleAt ?? this.lastLocationSampleAt,
+      locationSampleCount:
+          locationSampleCount ?? this.locationSampleCount,
       arrived: arrived ?? this.arrived,
       isActive: isActive ?? this.isActive,
       voiceUnavailable: voiceUnavailable ?? this.voiceUnavailable,
@@ -204,6 +219,12 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
     final route = state.route;
     if (!state.isActive || route == null) return;
     if (state.arrived) return;
+
+    state = state.copyWith(
+      rawLocation: userLocation,
+      lastLocationSampleAt: DateTime.now().toUtc(),
+      locationSampleCount: state.locationSampleCount + 1,
+    );
 
     final projection = RouteProgressMatcher.project(
       userLocation,
@@ -863,5 +884,15 @@ class _RemainingEstimate {
 
 final navigationProvider =
     StateNotifierProvider<NavigationNotifier, NavigationState>((ref) {
-  return NavigationNotifier(ref);
+  final notifier = NavigationNotifier(ref);
+
+  ref.listen<LocationMotion?>(locationMotionProvider, (previous, next) {
+    if (next == null) return;
+
+    unawaited(
+      notifier.updateUserLocation(next.location),
+    );
+  });
+
+  return notifier;
 });
