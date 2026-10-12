@@ -1,15 +1,15 @@
-name: RAHI 20d Live Navigation Device Test
+name: RAHI 20e Dedicated Navigation Device Test
 
 on:
   push:
     branches:
-      - v1-commit-20d-live-navigation-feed
+      - v1-commit-20e-dedicated-nav-location
   workflow_dispatch:
     inputs:
       note:
         description: 'Optional Gate 2 device test note'
         required: false
-        default: 'Live location feed + Gate 2 diagnostics'
+        default: 'Dedicated navigation GPS stream + watchdog'
 
 permissions:
   contents: read
@@ -136,15 +136,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p build/gate2
-          cp build/app/outputs/flutter-apk/app-debug.apk             build/gate2/RAHI-20d-Live-Navigation.apk
-          sha256sum build/gate2/RAHI-20d-Live-Navigation.apk             | tee build/gate2/RAHI-20d-Live-Navigation.apk.sha256
+          cp build/app/outputs/flutter-apk/app-debug.apk             build/gate2/RAHI-20e-Dedicated-Navigation.apk
+          sha256sum build/gate2/RAHI-20e-Dedicated-Navigation.apk             | tee build/gate2/RAHI-20e-Dedicated-Navigation.apk.sha256
 
       - name: Upload Gate 2 APK
         uses: actions/upload-artifact@v7
         with:
-          name: RAHI-20d-Live-Navigation-${{ github.run_number }}
+          name: RAHI-20e-Dedicated-Navigation-${{ github.run_number }}
           path: |
-            build/gate2/RAHI-20d-Live-Navigation.apk
-            build/gate2/RAHI-20d-Live-Navigation.apk.sha256
+            build/gate2/RAHI-20e-Dedicated-Navigation.apk
+            build/gate2/RAHI-20e-Dedicated-Navigation.apk.sha256
           if-no-files-found: error
           retention-days: 30
