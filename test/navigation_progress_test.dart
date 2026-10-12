@@ -4,7 +4,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:rahi/data/models/map_route.dart';
 import 'package:rahi/data/models/route_step.dart';
 import 'package:rahi/features/navigation/providers/navigation_provider.dart';
-import 'package:rahi/providers/location_provider.dart';
 import 'package:rahi/providers/settings_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -82,24 +81,21 @@ void main() {
     });
 
 
-    test('live location provider feeds navigation engine directly', () async {
+    test('navigation samples record source and advance progress', () async {
       final notifier = container.read(navigationProvider.notifier);
       await notifier.start(route);
 
       expect(container.read(navigationProvider).locationSampleCount, 0);
 
-      container.read(locationMotionProvider.notifier).state = LocationMotion(
-        location: const LatLng(35.7000, 51.4030),
-        headingDegrees: 90,
-        speedMetersPerSecond: 8,
-        timestamp: DateTime.now().toUtc(),
+      await notifier.updateUserLocation(
+        const LatLng(35.7000, 51.4030),
+        source: 'test-stream',
       );
-
-      await Future<void>.delayed(Duration.zero);
 
       final state = container.read(navigationProvider);
       expect(state.locationSampleCount, 1);
       expect(state.rawLocation, const LatLng(35.7000, 51.4030));
+      expect(state.lastLocationSource, 'test-stream');
       expect(state.routeProgressMeters, greaterThan(0));
       expect(state.lastLocationSampleAt, isNotNull);
     });
