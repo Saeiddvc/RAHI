@@ -52,36 +52,28 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
     final locale = Localizations.localeOf(context).languageCode;
 
     ref.listen<LocationMotion?>(locationMotionProvider, (previous, next) {
-      if (next == null) return;
+      if (next == null || !_followUser || !mounted) return;
 
-      unawaited(() async {
-        await ref
-            .read(navigationProvider.notifier)
-            .updateUserLocation(next.location);
+      final matched = ref.read(navigationProvider).matchedLocation;
+      final followLocation = matched ?? next.location;
 
-        if (!_followUser || !mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
 
-        final matched = ref.read(navigationProvider).matchedLocation;
-        final followLocation = matched ?? next.location;
-
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-
-          try {
-            if (next.hasUsableHeading) {
-              _mapController.moveAndRotate(
-                followLocation,
-                17,
-                next.headingDegrees,
-              );
-            } else {
-              _mapController.move(followLocation, 16);
-            }
-          } catch (_) {
-            // The map controller may not yet be attached on the first frame.
+        try {
+          if (next.hasUsableHeading) {
+            _mapController.moveAndRotate(
+              followLocation,
+              17,
+              next.headingDegrees,
+            );
+          } else {
+            _mapController.move(followLocation, 16);
           }
-        });
-      }());
+        } catch (_) {
+          // The map controller may not yet be attached on the first frame.
+        }
+      });
     });
 
     ref.listen<bool>(
@@ -175,6 +167,24 @@ class _NavigationScreenState extends ConsumerState<NavigationScreen> {
                 offRoute: navigation.isOffRoute,
                 matched: navigation.matchedLocation != null &&
                     navigation.distanceFromRouteMeters <= 35,
+                sampleCount: navigation.locationSampleCount,
+                sampleAgeSeconds: navigation.lastLocationSampleAt == null
+                    ? null
+                    : DateTime.now()
+                        .toUtc()
+                        .difference(
+                          navigation.lastLocationSampleAt!.toUtc(),
+                        )
+                        .inMilliseconds /
+                        1000,
+                rawToMatchedMeters: navigation.rawLocation == null ||
+                        navigation.matchedLocation == null
+                    ? null
+                    : const Distance().as(
+                        LengthUnit.Meter,
+                        navigation.rawLocation!,
+                        navigation.matchedLocation!,
+                      ),
               ),
             ),
           Positioned(
@@ -394,6 +404,9 @@ class _Gate2DiagnosticsCard extends StatelessWidget {
   final int stepCount;
   final bool offRoute;
   final bool matched;
+  final int sampleCount;
+  final double? sampleAgeSeconds;
+  final double? rawToMatchedMeters;
 
   const _Gate2DiagnosticsCard({
     required this.crossTrackMeters,
@@ -403,6 +416,9 @@ class _Gate2DiagnosticsCard extends StatelessWidget {
     required this.stepCount,
     required this.offRoute,
     required this.matched,
+    required this.sampleCount,
+    required this.sampleAgeSeconds,
+    required this.rawToMatchedMeters,
   });
 
   @override
@@ -415,6 +431,9 @@ class _Gate2DiagnosticsCard extends StatelessWidget {
       'step: $stepIndex/${stepCount > 0 ? stepCount - 1 : 0}',
       'matched: $matched',
       'off-route: $offRoute',
+      'samples: $sampleCount',
+      'sample age: ${sampleAgeSeconds == null ? '-' : '${sampleAgeSeconds!.toStringAsFixed(1)} s'}',
+      'raw->matched: ${rawToMatchedMeters == null ? '-' : '${rawToMatchedMeters!.toStringAsFixed(1)} m'}',
     ].join('\n');
 
     return Material(
