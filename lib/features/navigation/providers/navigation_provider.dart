@@ -1,13 +1,14 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/services/voice_service.dart';
 import '../../../data/models/map_route.dart';
 import '../../../data/models/place.dart';
 import '../../../data/models/route_step.dart';
-import '../../../providers/location_provider.dart';
 import '../../../providers/map_service_provider.dart';
 import '../../../providers/settings_provider.dart';
 import '../utils/off_route_detector.dart';
@@ -29,6 +30,7 @@ class NavigationState {
   final LatLng? rawLocation;
   final DateTime? lastLocationSampleAt;
   final int locationSampleCount;
+  final String? lastLocationSource;
   final bool arrived;
   final bool isActive;
   final bool voiceUnavailable;
@@ -51,6 +53,7 @@ class NavigationState {
     this.rawLocation,
     this.lastLocationSampleAt,
     this.locationSampleCount = 0,
+    this.lastLocationSource,
     this.arrived = false,
     this.isActive = false,
     this.voiceUnavailable = false,
@@ -107,6 +110,7 @@ class NavigationState {
     LatLng? rawLocation,
     DateTime? lastLocationSampleAt,
     int? locationSampleCount,
+    String? lastLocationSource,
     bool? arrived,
     bool? isActive,
     bool? voiceUnavailable,
@@ -142,6 +146,8 @@ class NavigationState {
           lastLocationSampleAt ?? this.lastLocationSampleAt,
       locationSampleCount:
           locationSampleCount ?? this.locationSampleCount,
+      lastLocationSource:
+          lastLocationSource ?? this.lastLocationSource,
       arrived: arrived ?? this.arrived,
       isActive: isActive ?? this.isActive,
       voiceUnavailable: voiceUnavailable ?? this.voiceUnavailable,
@@ -171,11 +177,49 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
   bool _arrivalAnnounced = false;
   bool _rerouteOfferedForCurrentOffRoute = false;
   Timer? _offRouteGraceTimer;
+  StreamSubscription<Position>? _navigationPositionSubscription;
+  Timer? _navigationWatchdog;
+  bool _watchdogPollInFlight = false;
+  DateTime? _lastDedicatedLocationAt;
 
   double? _lastPolylineProgressMeters;
   double? _lastRouteProgressMeters;
   double _routeMetricLengthMeters = 0;
   List<double> _stepTargetMeters = const [];
+
+
+  static LocationSettings get _navigationStreamSettings {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
+        forceLocationManager: false,
+        intervalDuration: const Duration(seconds: 1),
+      );
+    }
+
+    return const LocationSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 0,
+    );
+  }
+
+  static LocationSettings get _navigationPollSettings {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
+        forceLocationManager: false,
+        timeLimit: const Duration(seconds: 4),
+      );
+    }
+
+    return const LocationSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 0,
+      timeLimit: Duration(seconds: 4),
+    );
+  }
 
   Future<void> start(
     MapRoute route, {
@@ -201,12 +245,18 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
     await _announceDepartureIfPresent(route);
 
     if (initialLocation != null) {
-      await updateUserLocation(initialLocation);
+      await updateUserLocation(
+        initialLocation,
+        source: 'initial',
+      );
     }
+
+    _startDedicatedLocationFeed();
   }
 
   Future<void> stop() async {
     _offRouteGraceTimer?.cancel();
+    await _stopDedicatedLocationFeed();
     await _ref.read(voiceServiceProvider).stop();
     state = const NavigationState();
     _preAnnouncedStepIndex = -1;
@@ -215,7 +265,10 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
     _resetRouteProgress();
   }
 
-  Future<void> updateUserLocation(LatLng userLocation) async {
+  Future<void> updateUserLocation(
+    LatLng userLocation, {
+    String source = 'external',
+  }) async {
     final route = state.route;
     if (!state.isActive || route == null) return;
     if (state.arrived) return;
@@ -224,6 +277,7 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
       rawLocation: userLocation,
       lastLocationSampleAt: DateTime.now().toUtc(),
       locationSampleCount: state.locationSampleCount + 1,
+      lastLocationSource: source,
     );
 
     final projection = RouteProgressMatcher.project(
@@ -371,6 +425,98 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
     if (distanceToTarget <= _preAnnounceThresholdMeters) {
       await _preAnnounceCurrentStep();
     }
+  }
+
+
+  void _startDedicatedLocationFeed() {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return;
+    }
+
+    unawaited(_navigationPositionSubscription?.cancel());
+    _navigationPositionSubscription = Geolocator.getPositionStream(
+      locationSettings: _navigationStreamSettings,
+    ).listen(
+      (position) {
+        if (!_isNavigationPositionUsable(position)) return;
+
+        _lastDedicatedLocationAt = DateTime.now().toUtc();
+        unawaited(
+          updateUserLocation(
+            LatLng(position.latitude, position.longitude),
+            source: 'stream',
+          ),
+        );
+      },
+      onError: (_) {
+        // Watchdog polling below recovers from a stalled stream.
+      },
+    );
+
+    _navigationWatchdog?.cancel();
+    _navigationWatchdog = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => unawaited(_pollNavigationLocationIfStale()),
+    );
+  }
+
+  Future<void> _pollNavigationLocationIfStale() async {
+    if (!state.isActive || state.arrived || _watchdogPollInFlight) {
+      return;
+    }
+
+    final last = _lastDedicatedLocationAt;
+    final stale = last == null ||
+        DateTime.now().toUtc().difference(last).abs() >
+            const Duration(seconds: 3);
+
+    if (!stale) return;
+
+    _watchdogPollInFlight = true;
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: _navigationPollSettings,
+      );
+
+      if (!_isNavigationPositionUsable(position)) return;
+
+      _lastDedicatedLocationAt = DateTime.now().toUtc();
+      await updateUserLocation(
+        LatLng(position.latitude, position.longitude),
+        source: 'watchdog',
+      );
+    } catch (_) {
+      // Device diagnostics expose stale sample age if both paths fail.
+    } finally {
+      _watchdogPollInFlight = false;
+    }
+  }
+
+  bool _isNavigationPositionUsable(Position position) {
+    if (position.isMocked) return false;
+    if (!position.latitude.isFinite ||
+        !position.longitude.isFinite ||
+        !position.accuracy.isFinite ||
+        position.accuracy <= 0 ||
+        position.accuracy > 80) {
+      return false;
+    }
+
+    final age = DateTime.now()
+        .toUtc()
+        .difference(position.timestamp.toUtc())
+        .abs();
+
+    return age <= const Duration(seconds: 15);
+  }
+
+  Future<void> _stopDedicatedLocationFeed() async {
+    await _navigationPositionSubscription?.cancel();
+    _navigationPositionSubscription = null;
+    _navigationWatchdog?.cancel();
+    _navigationWatchdog = null;
+    _watchdogPollInFlight = false;
+    _lastDedicatedLocationAt = null;
   }
 
   Future<void> _updateLegacyProgress(
@@ -868,6 +1014,8 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
   @override
   void dispose() {
     _offRouteGraceTimer?.cancel();
+    _navigationPositionSubscription?.cancel();
+    _navigationWatchdog?.cancel();
     super.dispose();
   }
 }
@@ -884,15 +1032,5 @@ class _RemainingEstimate {
 
 final navigationProvider =
     StateNotifierProvider<NavigationNotifier, NavigationState>((ref) {
-  final notifier = NavigationNotifier(ref);
-
-  ref.listen<LocationMotion?>(locationMotionProvider, (previous, next) {
-    if (next == null) return;
-
-    unawaited(
-      notifier.updateUserLocation(next.location),
-    );
-  });
-
-  return notifier;
+  return NavigationNotifier(ref);
 });
