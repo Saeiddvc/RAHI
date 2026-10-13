@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
@@ -96,9 +98,25 @@ class GnssBridge {
   GnssBridge._();
 
   static const MethodChannel _channel = MethodChannel('rahi/gnss');
+  static const EventChannel _streamChannel =
+      EventChannel('rahi/gnss_stream');
 
   static bool get _supported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+
+  static Stream<NativeGnssFix> get gpsFixStream {
+    if (!_supported) return const Stream<NativeGnssFix>.empty();
+
+    return _streamChannel
+        .receiveBroadcastStream()
+        .where((event) => event is Map && event['available'] == true)
+        .map(
+          (event) => NativeGnssFix.fromMap(
+            Map<Object?, Object?>.from(event as Map),
+          ),
+        );
+  }
 
   static Future<NativeGnssFix?> acquireGpsFix({
     Duration timeout = const Duration(seconds: 20),
