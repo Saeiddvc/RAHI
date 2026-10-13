@@ -1,14 +1,14 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../core/services/gnss_bridge.dart';
 import '../../../core/services/voice_service.dart';
 import '../../../data/models/map_route.dart';
 import '../../../data/models/place.dart';
 import '../../../data/models/route_step.dart';
+import '../../../providers/location_provider.dart';
 import '../../../providers/map_service_provider.dart';
 import '../../../providers/settings_provider.dart';
 import '../utils/off_route_detector.dart';
@@ -177,7 +177,7 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
   bool _arrivalAnnounced = false;
   bool _rerouteOfferedForCurrentOffRoute = false;
   Timer? _offRouteGraceTimer;
-  StreamSubscription<Position>? _navigationPositionSubscription;
+  StreamSubscription<NativeGnssFix>? _navigationPositionSubscription;
   Timer? _navigationWatchdog;
   bool _watchdogPollInFlight = false;
   DateTime? _lastDedicatedLocationAt;
@@ -187,39 +187,6 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
   double _routeMetricLengthMeters = 0;
   List<double> _stepTargetMeters = const [];
 
-
-  static LocationSettings get _navigationStreamSettings {
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      return AndroidSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 0,
-        forceLocationManager: false,
-        intervalDuration: const Duration(seconds: 1),
-      );
-    }
-
-    return const LocationSettings(
-      accuracy: LocationAccuracy.bestForNavigation,
-      distanceFilter: 0,
-    );
-  }
-
-  static LocationSettings get _navigationPollSettings {
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      return AndroidSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 0,
-        forceLocationManager: false,
-        timeLimit: const Duration(seconds: 4),
-      );
-    }
-
-    return const LocationSettings(
-      accuracy: LocationAccuracy.bestForNavigation,
-      distanceFilter: 0,
-      timeLimit: Duration(seconds: 4),
-    );
-  }
 
   Future<void> start(
     MapRoute route, {
@@ -429,27 +396,17 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
 
 
   void _startDedicatedLocationFeed() {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
-      return;
-    }
-
     unawaited(_navigationPositionSubscription?.cancel());
-    _navigationPositionSubscription = Geolocator.getPositionStream(
-      locationSettings: _navigationStreamSettings,
-    ).listen(
-      (position) {
-        if (!_isNavigationPositionUsable(position)) return;
+
+    _navigationPositionSubscription = GnssBridge.gpsFixStream.listen(
+      (fix) {
+        if (!_isNativeFixUsable(fix)) return;
 
         _lastDedicatedLocationAt = DateTime.now().toUtc();
-        unawaited(
-          updateUserLocation(
-            LatLng(position.latitude, position.longitude),
-            source: 'stream',
-          ),
-        );
+        unawaited(_handleNativeFix(fix, source: 'native_stream'));
       },
       onError: (_) {
-        // Watchdog polling below recovers from a stalled stream.
+        // Native watchdog below recovers if the EventChannel stalls.
       },
     );
 
@@ -474,37 +431,53 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
 
     _watchdogPollInFlight = true;
     try {
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: _navigationPollSettings,
+      final fix = await GnssBridge.acquireGpsFix(
+        timeout: const Duration(seconds: 5),
       );
 
-      if (!_isNavigationPositionUsable(position)) return;
+      if (fix == null || !_isNativeFixUsable(fix)) return;
 
       _lastDedicatedLocationAt = DateTime.now().toUtc();
-      await updateUserLocation(
-        LatLng(position.latitude, position.longitude),
-        source: 'watchdog',
+      await _handleNativeFix(
+        fix,
+        source: 'native_watchdog',
       );
-    } catch (_) {
-      // Device diagnostics expose stale sample age if both paths fail.
     } finally {
       _watchdogPollInFlight = false;
     }
   }
 
-  bool _isNavigationPositionUsable(Position position) {
-    if (position.isMocked) return false;
-    if (!position.latitude.isFinite ||
-        !position.longitude.isFinite ||
-        !position.accuracy.isFinite ||
-        position.accuracy <= 0 ||
-        position.accuracy > 80) {
+  Future<void> _handleNativeFix(
+    NativeGnssFix fix, {
+    required String source,
+  }) async {
+    _ref.read(locationMotionProvider.notifier).state = LocationMotion(
+      location: fix.location,
+      headingDegrees: fix.headingDegrees,
+      speedMetersPerSecond: fix.speedMetersPerSecond,
+      timestamp: fix.timestamp,
+    );
+
+    await updateUserLocation(
+      fix.location,
+      source: source,
+    );
+  }
+
+  bool _isNativeFixUsable(NativeGnssFix fix) {
+    if (fix.mocked ||
+        !fix.location.latitude.isFinite ||
+        !fix.location.longitude.isFinite ||
+        !fix.accuracyMeters.isFinite ||
+        fix.accuracyMeters <= 0 ||
+        fix.accuracyMeters > 120 ||
+        fix.snapshot.satellitesUsedInFix < 4) {
       return false;
     }
 
     final age = DateTime.now()
         .toUtc()
-        .difference(position.timestamp.toUtc())
+        .difference(fix.timestamp.toUtc())
         .abs();
 
     return age <= const Duration(seconds: 15);
@@ -710,7 +683,10 @@ class NavigationNotifier extends StateNotifier<NavigationState> {
       await _announceDepartureIfPresent(newRoute);
 
       if (mounted) {
-        await updateUserLocation(currentLocation);
+        await updateUserLocation(
+          currentLocation,
+          source: 'reroute',
+        );
       }
     } catch (error) {
       if (!mounted) return;
