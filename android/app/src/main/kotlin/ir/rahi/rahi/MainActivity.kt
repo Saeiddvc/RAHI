@@ -13,9 +13,9 @@ import android.os.Handler
 import android.os.Looper
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import kotlin.math.max
 
 class MainActivity : FlutterActivity() {
     private lateinit var locationManager: LocationManager
@@ -31,6 +31,9 @@ class MainActivity : FlutterActivity() {
     private var pendingListener: LocationListener? = null
     private var pendingTimeout: Runnable? = null
     private var bestLocation: Location? = null
+
+    private var streamSink: EventChannel.EventSink? = null
+    private var streamListener: LocationListener? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -51,6 +54,24 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "rahi/gnss_stream",
+        ).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(
+                    arguments: Any?,
+                    events: EventChannel.EventSink,
+                ) {
+                    startGnssStream(events)
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    stopGnssStream()
+                }
+            },
+        )
     }
 
     private val gnssCallback = object : GnssStatus.Callback() {
@@ -95,6 +116,88 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun startGnssStream(events: EventChannel.EventSink) {
+        stopGnssStream()
+
+        if (!hasFineLocationPermission()) {
+            events.error(
+                "fine_location_required",
+                "ACCESS_FINE_LOCATION is required for GNSS streaming.",
+                null,
+            )
+            return
+        }
+
+        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            events.error(
+                "gps_provider_disabled",
+                "GPS provider is disabled.",
+                null,
+            )
+            return
+        }
+
+        ensureGnssStatus()
+        streamSink = events
+
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                streamSink?.success(locationMap(location))
+            }
+
+            override fun onProviderEnabled(provider: String) = Unit
+
+            override fun onProviderDisabled(provider: String) {
+                if (provider == LocationManager.GPS_PROVIDER) {
+                    streamSink?.error(
+                        "gps_provider_disabled",
+                        "GPS provider was disabled while navigation was active.",
+                        null,
+                    )
+                }
+            }
+
+            @Deprecated("Deprecated in Android")
+            override fun onStatusChanged(
+                provider: String?,
+                status: Int,
+                extras: Bundle?,
+            ) = Unit
+        }
+
+        streamListener = listener
+
+        try {
+            locationManager.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                500L,
+                0f,
+                listener,
+                Looper.getMainLooper(),
+            )
+        } catch (error: SecurityException) {
+            stopGnssStream()
+            events.error(
+                "gnss_permission",
+                error.message,
+                null,
+            )
+        }
+    }
+
+    private fun stopGnssStream() {
+        streamListener?.let {
+            try {
+                locationManager.removeUpdates(it)
+            } catch (_: SecurityException) {
+                // Permission may have changed while navigation was active.
+            }
+        }
+
+        streamListener = null
+        streamSink = null
+    }
+
     private fun acquireGpsFix(
         call: MethodCall,
         result: MethodChannel.Result,
@@ -131,7 +234,7 @@ class MainActivity : FlutterActivity() {
 
         val timeoutMs =
             (call.argument<Number>("timeoutMs")?.toLong() ?: 20_000L)
-                .coerceIn(5_000L, 30_000L)
+                .coerceIn(3_000L, 30_000L)
 
         pendingResult = result
         bestLocation = null
@@ -290,6 +393,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        stopGnssStream()
         clearPendingLocationRequest()
 
         if (gnssRegistered && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
