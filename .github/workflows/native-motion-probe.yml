@@ -1,0 +1,115 @@
+name: RAHI 20g Native Motion Probe
+
+on:
+  push:
+    branches:
+      - v1-commit-20g-native-motion-probe
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-motion-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+
+      - name: Preserve RAHI sources
+        shell: bash
+        run: |
+          mkdir -p /tmp/rahi-source /tmp/rahi-android
+          cp -R lib /tmp/rahi-source/lib
+          cp pubspec.yaml /tmp/rahi-source/pubspec.yaml
+          cp analysis_options.yaml /tmp/rahi-source/analysis_options.yaml
+          if [ -f l10n.yaml ]; then cp l10n.yaml /tmp/rahi-source/l10n.yaml; fi
+
+          cp android/app/src/main/AndroidManifest.xml /tmp/rahi-android/AndroidManifest.xml
+          cp android/app/src/main/res/values/strings.xml /tmp/rahi-android/strings.xml
+          cp android/app/build.gradle.kts /tmp/rahi-android/build.gradle.kts
+          cp android/app/proguard-rules.pro /tmp/rahi-android/proguard-rules.pro
+          cp android/gradle.properties /tmp/rahi-android/gradle.properties
+          if [ -d android/app/src/main/kotlin ]; then
+            cp -R android/app/src/main/kotlin /tmp/rahi-android/kotlin
+          fi
+
+      - name: Generate Android scaffold
+        shell: bash
+        run: |
+          flutter create .             --platforms=android             --project-name=rahi             --org=ir.rahi
+
+          rm -rf lib
+          cp -R /tmp/rahi-source/lib ./lib
+          cp /tmp/rahi-source/pubspec.yaml ./pubspec.yaml
+          cp /tmp/rahi-source/analysis_options.yaml ./analysis_options.yaml
+          if [ -f /tmp/rahi-source/l10n.yaml ]; then
+            cp /tmp/rahi-source/l10n.yaml ./l10n.yaml
+          fi
+
+          cp /tmp/rahi-android/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          mkdir -p android/app/src/main/res/values
+          cp /tmp/rahi-android/strings.xml android/app/src/main/res/values/strings.xml
+          cp /tmp/rahi-android/build.gradle.kts android/app/build.gradle.kts
+          cp /tmp/rahi-android/proguard-rules.pro android/app/proguard-rules.pro
+          cp /tmp/rahi-android/gradle.properties android/gradle.properties
+          if [ -d /tmp/rahi-android/kotlin ]; then
+            rm -rf android/app/src/main/kotlin
+            mkdir -p android/app/src/main
+            cp -R /tmp/rahi-android/kotlin android/app/src/main/kotlin
+          fi
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Generate branding
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check Pillow
+          python tools/generate_icon.py
+          dart run flutter_launcher_icons
+          dart run flutter_native_splash:create
+
+      - name: Generate localizations
+        run: flutter gen-l10n
+
+      - name: Analyze motion probe
+        run: |
+          flutter analyze             lib/diagnostics/native_motion_probe_main.dart             lib/diagnostics/native_motion_probe_app.dart             lib/core/services/gnss_bridge.dart
+
+      - name: Build motion probe APK
+        run: |
+          flutter build apk --debug             -t lib/diagnostics/native_motion_probe_main.dart
+          test -f build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          mkdir -p build/motion-probe
+          cp build/app/outputs/flutter-apk/app-debug.apk             build/motion-probe/RAHI-20g-Native-Motion-Probe.apk
+          sha256sum build/motion-probe/RAHI-20g-Native-Motion-Probe.apk             | tee build/motion-probe/RAHI-20g-Native-Motion-Probe.apk.sha256
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: RAHI-20g-Native-Motion-Probe-${{ github.run_number }}
+          path: |
+            build/motion-probe/RAHI-20g-Native-Motion-Probe.apk
+            build/motion-probe/RAHI-20g-Native-Motion-Probe.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
